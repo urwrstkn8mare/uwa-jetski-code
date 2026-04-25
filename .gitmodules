@@ -1,0 +1,4 @@
+[submodule "esp-bsp"]
+	path = esp-bsp
+	url = https://github.com/espressif/esp-bsp
+	branch = bsp/update_tab5
