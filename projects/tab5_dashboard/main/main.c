@@ -1,0 +1,94 @@
+#include "bsp/m5stack_tab5.h"
+#include "esp_log.h"
+#include "dashboard_demo.h"
+#include "dashboard_ui.h"
+#include "ui/dashboard_font.h"
+
+#include <stdint.h>
+
+static const char *TAG = "main";
+
+/* Force linker to pull lv_ftsystem.c.obj from lvgl library.
+ * lv_ftsystem.c defines FT_Stream_Open using LVGL's filesystem API,
+ * but it is never referenced from within liblvgl__lvgl.a, so the
+ * linker skips it and falls back to FreeType's standard I/O.
+ * This global variable initializer forces an unresolved reference
+ * that the linker must satisfy from a library. */
+// extern int FT_Stream_Open(void *stream, const char *filepathname);
+// static void * __attribute__((used, section(".data"))) force_lv_ftsystem_link_ptr = (void *)FT_Stream_Open;
+
+static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *user_data)
+{
+    (void)user_data;
+    const lv_font_t *font = NULL;
+    if (dashboard_font_get(size_px, (dashboard_font_weight_t)weight, &font) == ESP_OK) {
+        return font;
+    }
+    return NULL;
+}
+
+typedef struct {
+    dashboard_ui_t *ui;
+    uint32_t start_ms;
+} dashboard_runtime_t;
+
+static dashboard_runtime_t s_runtime;
+
+static void dashboard_timer_cb(lv_timer_t *timer)
+{
+    dashboard_runtime_t *runtime = lv_timer_get_user_data(timer);
+    if (runtime == NULL || runtime->ui == NULL) {
+        lv_timer_pause(timer);
+        return;
+    }
+
+    dashboard_data_t data;
+    dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
+    dashboard_ui_set_data(runtime->ui, &data);
+}
+
+void app_main(void)
+{
+    bsp_io_expander_init();
+
+    bsp_display_cfg_t cfg = {
+        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+        .buffer_size = BSP_LCD_H_RES * CONFIG_BSP_LCD_DRAW_BUF_HEIGHT,
+        .double_buffer = true,
+        .flags = {
+            .buff_dma = 1,
+            .buff_spiram = 0,
+            .sw_rotate = 1, /* Use software rotation to avoid swap_xy errors */
+        },
+    };
+    /* Increase LVGL task stack: FreeType glyph rendering needs > 7KB */
+    cfg.lvgl_port_cfg.task_stack = 24576;
+
+    lv_display_t *disp = bsp_display_start_with_config(&cfg);
+    bsp_display_rotate(disp, LV_DISPLAY_ROTATION_270);
+    bsp_display_backlight_on();
+
+    if (!bsp_display_lock(0)) {
+        ESP_LOGE(TAG, "Failed to lock display");
+        return;
+    }
+
+    dashboard_ui_set_font_callback(tab5_font_get_cb, NULL);
+
+    lv_obj_t *screen = lv_screen_active();
+    s_runtime.ui = dashboard_ui_create(screen);
+    if (s_runtime.ui == NULL) {
+        ESP_LOGE(TAG, "Failed to create dashboard UI");
+        bsp_display_unlock();
+        return;
+    }
+
+    s_runtime.start_ms = lv_tick_get();
+
+    dashboard_data_t data;
+    dashboard_demo_fill(&data, 0);
+    dashboard_ui_set_data(s_runtime.ui, &data);
+
+    (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
+    bsp_display_unlock();
+}

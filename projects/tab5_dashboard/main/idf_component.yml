@@ -1,0 +1,16 @@
+dependencies:
+  m5stack_tab5:
+    version: '*'
+    override_path: "../../../esp-bsp/bsp/m5stack_tab5"
+    public: true
+  lvgl/lvgl:
+    version: "^9"
+    public: true
+  espressif/esp_mmap_assets:
+    version: "*"
+  espressif/esp_lv_fs:
+    version: "*"
+  espressif/freetype:
+    version: "*"
+
+description: Tab5 dashboard port
