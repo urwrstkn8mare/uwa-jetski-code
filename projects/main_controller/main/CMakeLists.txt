@@ -1,3 +1,3 @@
 idf_component_register(SRCS "main.c"
-                       PRIV_REQUIRES spi_flash esp_driver_i2c esp_timer mpu9250_dmp
+                       PRIV_REQUIRES spi_flash esp_driver_i2c esp_timer imu
                        INCLUDE_DIRS "")
