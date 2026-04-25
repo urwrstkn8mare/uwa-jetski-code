@@ -14,6 +14,6 @@ else
 	alias choose_port='choose_port.py'
 	alias clean='clean.py'
 	alias monitor='monitor.py'
-	alias flash='flash.py'
+	alias flash='flash.sh'
 	echo "Extension-less aliases created (build, choose_port, clean, monitor, flash)"
 fi
