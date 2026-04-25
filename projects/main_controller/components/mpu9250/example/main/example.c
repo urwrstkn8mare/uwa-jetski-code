@@ -6,8 +6,8 @@
 #include "freertos/task.h"
 #include <mpu9250.h>
 
-#define SCL_PIN 39
-#define SDA_PIN 38
+#define SCL_PIN 21
+#define SDA_PIN 22
 
 static const char *TAG = "mpu_example";
 
@@ -45,4 +45,3 @@ void vImuTask(void *pvParameters) {
 }
 
 void app_main(void) { xTaskCreate(vImuTask, "IMU", 2500, NULL, 1, NULL); }
-

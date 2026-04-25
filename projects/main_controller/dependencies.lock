@@ -1,21 +1,67 @@
 dependencies:
-  idf:
-    source:
-      type: idf
-    version: 5.5.3
-  truita/mpu9250:
-    component_hash: 3403bfddacef335397281d3191845d4e09c792e5fe62aff8689bcc67a388c645
+  espp/filters:
+    component_hash: 9e452a6fd15a48a83d2f0612163db6c4549f4ff4cc6e6d0fd43f70ee641a1f08
     dependencies:
+    - name: espp/format
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.0'
+    - name: espp/math
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.0'
+    - name: espressif/esp-dsp
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.6.4'
     - name: idf
       require: private
       version: '>=5.0'
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.0.1
+    version: 1.0.36
+  espp/format:
+    component_hash: 6a1b3b8548c903f52c1942c16d796bb946da7c2866e86d17cc8d44b746ee7753
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.0.36
+  espp/math:
+    component_hash: 535c2814636f60bc1ae0531216ac939c3eb049d7e73cfc6e430be691c6fd9138
+    dependencies:
+    - name: espp/format
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.0'
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.0.36
+  espressif/esp-dsp:
+    component_hash: c1832a2020342144d0de7940f73184584f182b3e9aa53180ee86c84ce7ff14dc
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.8.1
+  idf:
+    source:
+      type: idf
+    version: 5.5.3
 direct_dependencies:
+- espp/filters
 - idf
-- truita/mpu9250
-manifest_hash: 860c1ce26bc436253640eba863bf97f2bfad51345ab360ac84d03789ee8f2fa0
+manifest_hash: de9f1a2dffe37a08b0bfdec995b95ff2af615440220fe9522daaf0a8f1581a07
 target: esp32s3
 version: 2.0.0

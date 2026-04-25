@@ -57,7 +57,7 @@ def main():
                 rfds, _, _ = select.select([master_fd, sys.stdin], [], [], remaining)
 
                 # Check if the timer hit while we were blocking
-                if not sent_flag and time.time() >= trigger_time:
+                if not sent_flag and args.timeout > 0 and time.time() >= trigger_time:
                     print(
                         f"--- SENDING STOP SIGNAL (CTRL-]) as {args.timeout}s timeout passed ---"
                     )
@@ -68,13 +68,13 @@ def main():
                 if master_fd in rfds:
                     try:
                         data = os.read(master_fd, 1024)
+                        if not data:
+                            break
+                        os.write(sys.stdout.fileno(), data)
                     except OSError as e:
                         if e.errno == 5:  # EIO when slave side closes
                             break
                         raise
-                    if not data:
-                        break
-                    os.write(sys.stdout.fileno(), data)
 
                 # Forward your typing to the child
                 if sys.stdin.fileno() in rfds:
