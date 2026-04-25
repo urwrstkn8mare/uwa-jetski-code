@@ -20,8 +20,11 @@ def main():
         type=bool,
         default=False,
         help="Whether to delete additional files which *could* result in data loss.",
+        action="store_true",
     )
-    parser.add_argument("-d", "--dry-run", type=bool, default=False)
+    parser.add_argument(
+        "-d", "--dry-run", type=bool, default=False, action="store_true"
+    )
     args = parser.parse_args()
 
     def process(path: Path):

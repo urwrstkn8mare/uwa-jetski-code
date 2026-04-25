@@ -2,5 +2,6 @@ build
 build.clang
 .cache
 managed_components
+.serial_port
 sdkconfig
 sdkconfig.old
