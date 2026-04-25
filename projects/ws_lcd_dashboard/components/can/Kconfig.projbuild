@@ -1,0 +1,11 @@
+menu "CAN configuration"
+
+    config CANTX
+        int "CAN tranceiver TX GPIO pin"
+        default 15
+
+    config CANRX
+        int "CAN tranceiver RX GPIO pin"
+        default 16
+
+endmenu

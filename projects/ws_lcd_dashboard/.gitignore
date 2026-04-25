@@ -1,0 +1,7 @@
+build
+.cache
+managed_components
+build.clang
+sdkconfig
+sdkconfig.old
+.serial_port

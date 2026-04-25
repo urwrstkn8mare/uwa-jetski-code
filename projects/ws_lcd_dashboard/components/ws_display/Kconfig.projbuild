@@ -1,0 +1,17 @@
+menu "Waveshare Display Configuration"
+
+    menu "Display"
+        config EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT
+            int "RGB Bounce buffer height"
+            default 10
+            help
+                Height of bounce buffer. The width of the buffer is the same as that of the LCD.
+
+        config WS_DISPLAY_ROTATION
+            int "Display rotation"
+            default 180
+            help
+                Display rotation in degrees. Supported values are 0, 90, 180, and 270.
+
+    endmenu
+endmenu

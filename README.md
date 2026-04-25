@@ -14,4 +14,10 @@ projects. These must be ***symlinked*** into the projects' `components` director
 - `projects`: A bunch of ESP-IDF projects that each run on a specfic ESP32
 with a specifc purpose. Can simply look at the project's README to learn more.
 
-- `scripts`: Useful scripts
+- `scripts`: Contains utility scripts for development. Run these directly or via the aliases provided by `activate_scripts.sh`:
+  - `build.sh`: Wrapper for `idf.py build`. Accepts same arguments as `idf.py build`.
+  - `clean.py`: Removes build artifacts. Accepts optional `-p/--project` argument to specify project path (defaults to current directory).
+  - `flash.sh`: Wrapper for `idf.py flash` but uses serial port defined in `.serial_port`
+  - `monitor.py`: PTY wrapper for `idf.py monitor` but uses serial port defined in `.serial_port`.
+  - `choose_port.py`: Interactive serial port selector that saves choice to `.serial_port` of project (also can be non-interactive).
+- `activate_scripts.sh`: Source this script (do NOT run it directly!) to add the `scripts` directory to your PATH and create convenient shell aliases. After sourcing, you can use `build`, `clean`, `flash`, `monitor`, and `choose_port` directly without the `.sh` or `.py` extensions. Example: `source ./activate_scripts.sh`
