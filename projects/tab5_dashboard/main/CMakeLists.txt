@@ -6,7 +6,7 @@ idf_component_register(
         "."
         "ui"
     REQUIRES
-        dashboard_ui freetype lvgl
+        dashboard_ui 
 )
 
 set_source_files_properties(main.c PROPERTIES COMPILE_OPTIONS "-std=gnu23")

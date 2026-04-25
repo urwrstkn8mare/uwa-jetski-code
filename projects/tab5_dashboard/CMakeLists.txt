@@ -12,3 +12,8 @@ idf_build_set_property(COMPILE_OPTIONS "-DFT2_BUILD_LIBRARY" APPEND)
 idf_build_set_property(MINIMAL_BUILD ON)
 project(tab5_dashboard)
 
+# # Link freetype to lvgl component to resolve FT_* symbols
+# idf_component_get_property(lvgl_lib lvgl__lvgl COMPONENT_LIB)
+# idf_component_get_property(ft_lib espressif__freetype COMPONENT_LIB)
+# target_link_libraries(${lvgl_lib} INTERFACE ${ft_lib})
+

@@ -14,8 +14,8 @@ static const char *TAG = "main";
  * linker skips it and falls back to FreeType's standard I/O.
  * This global variable initializer forces an unresolved reference
  * that the linker must satisfy from a library. */
-// extern int FT_Stream_Open(void *stream, const char *filepathname);
-// static void * __attribute__((used, section(".data"))) force_lv_ftsystem_link_ptr = (void *)FT_Stream_Open;
+extern int FT_Stream_Open(void *stream, const char *filepathname);
+static void * __attribute__((used, section(".data"))) force_lv_ftsystem_link_ptr = (void *)FT_Stream_Open;
 
 static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *user_data)
 {
