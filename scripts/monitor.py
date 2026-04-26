@@ -36,7 +36,7 @@ def main():
     if os.environ.get("IDF_PATH") is None:
         raise Exception("Not running is an ESP-IDF environment!")
 
-    port = Path(".serial_port").read_text()
+    port = Path(".serial_port").read_text().strip()
 
     pid, master_fd = pty.fork()
 
