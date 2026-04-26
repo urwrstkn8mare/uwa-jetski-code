@@ -759,6 +759,9 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
     return;
   }
 
+  const bool roll_clamped = (roll_deg < -45 || roll_deg > 45);
+  const bool pitch_clamped = (pitch_deg < -25 || pitch_deg > 25);
+
   roll_deg = clamp_i32(roll_deg, -45, 45);
   pitch_deg = clamp_i32(pitch_deg, -25, 25);
 
@@ -803,9 +806,13 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
 
   snprintf(txt, sizeof(txt), "ROLL %+d", roll_deg);
   lv_label_set_text(card->roll_label, txt);
+  lv_obj_set_style_text_color(card->roll_label,
+                              roll_clamped ? lv_color_hex(0xFF0000) : lv_color_white(), 0);
 
   snprintf(txt, sizeof(txt), "PITCH %+d", pitch_deg);
   lv_label_set_text(card->pitch_label, txt);
+  lv_obj_set_style_text_color(card->pitch_label,
+                              pitch_clamped ? lv_color_hex(0xFF0000) : lv_color_white(), 0);
 }
 
 static battery_card_t create_battery_card(lv_obj_t *parent, int32_t w, int32_t h) {

@@ -3,10 +3,14 @@
 #include "dashboard_demo.h"
 #include "dashboard_ui.h"
 #include "ui/dashboard_font.h"
+#include "can.h"
 
 #include <stdint.h>
+#include <string.h>
 
 static const char *TAG = "main";
+
+#define CAN_ID_ATTITUDE 0x100
 
 /* Force linker to pull lv_ftsystem.c.obj from lvgl library.
  * lv_ftsystem.c defines FT_Stream_Open using LVGL's filesystem API,
@@ -33,6 +37,21 @@ typedef struct {
 } dashboard_runtime_t;
 
 static dashboard_runtime_t s_runtime;
+static volatile int16_t s_rx_pitch = 0;
+static volatile int16_t s_rx_roll = 0;
+
+static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
+{
+    (void)timestamp;
+    if (header_id == CAN_ID_ATTITUDE && buffer != NULL) {
+        int16_t pitch, roll;
+        memcpy(&pitch, &buffer[0], sizeof(pitch));
+        memcpy(&roll, &buffer[2], sizeof(roll));
+        s_rx_pitch = pitch;
+        s_rx_roll = roll;
+    }
+    return false;
+}
 
 static void dashboard_timer_cb(lv_timer_t *timer)
 {
@@ -44,6 +63,8 @@ static void dashboard_timer_cb(lv_timer_t *timer)
 
     dashboard_data_t data;
     dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
+    data.pitch_deg = s_rx_pitch;
+    data.roll_deg = s_rx_roll;
     dashboard_ui_set_data(runtime->ui, &data);
 }
 
@@ -113,4 +134,7 @@ void app_main(void)
 
     (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
     bsp_display_unlock();
+
+    can_init(can_rx_cb);
+    ESP_LOGI(TAG, "CAN initialised, waiting for attitude data...");
 }

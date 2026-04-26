@@ -35,10 +35,10 @@ static inline float q30_to_float(long q) { return q / 1073741824.0f; }
 
 static inline void quat_to_pitch_roll(float w, float x, float y, float z,
                                       float *pitch, float *roll) {
-    *pitch = atan2f(2.0f * (w * x + y * z),
-                    w * w - x * x - y * y + z * z) *
-             180.0f / (float)M_PI;
-    *roll = asinf(-2.0f * (x * z - w * y)) * 180.0f / (float)M_PI;
+    *pitch = asinf(-2.0f * (x * z - w * y)) * 180.0f / (float)M_PI;
+    *roll = atan2f(2.0f * (w * x + y * z),
+                   w * w - x * x - y * y + z * z) *
+            180.0f / (float)M_PI;
 }
 
 /* Multiply two quaternions: result = a * b */

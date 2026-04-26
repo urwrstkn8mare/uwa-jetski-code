@@ -6,7 +6,7 @@ idf_component_register(
         "."
         "ui"
     REQUIRES
-        dashboard_ui 
+        dashboard_ui can
 )
 
 set_source_files_properties(main.c PROPERTIES COMPILE_OPTIONS "-std=gnu23")
