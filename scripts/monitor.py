@@ -3,6 +3,8 @@
 
 import os
 import pty
+import tty
+import termios
 import time
 import argparse
 from pathlib import Path
@@ -42,7 +44,12 @@ def main():
         print(f"--- STARTING idf.py monitor on {port} for {args.timeout}s ---")
         os.execvp("idf.py", ["idf.py", "monitor", "-p", port, *args.rest])
     else:  # parent proc
+        old_tty = None
         try:
+            if terminal_is_interactive:
+                old_tty = termios.tcgetattr(sys.stdin.fileno())
+                tty.setraw(sys.stdin.fileno())
+
             trigger_time = time.time() + args.timeout
             sent_flag = False
             while True:
@@ -54,7 +61,8 @@ def main():
                     remaining = max(0, trigger_time - current_time)
 
                 # select() will block until data is ready OR 'remaining' seconds pass
-                rfds, _, _ = select.select([master_fd, sys.stdin], [], [], remaining)
+                stdin_fd = sys.stdin.fileno()
+                rfds, _, _ = select.select([master_fd, stdin_fd], [], [], remaining)
 
                 # Check if the timer hit while we were blocking
                 if not sent_flag and args.timeout > 0 and time.time() >= trigger_time:
@@ -77,15 +85,17 @@ def main():
                         raise
 
                 # Forward your typing to the child
-                if sys.stdin.fileno() in rfds:
-                    data = os.read(sys.stdin.fileno(), 1024)
+                if stdin_fd in rfds:
+                    data = os.read(stdin_fd, 1024)
                     if not data:
                         break
                     os.write(master_fd, data)
 
         finally:
+            if old_tty is not None:
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_tty)
             os.close(master_fd)
-        os.waitpid(pid, 0)
+            os.waitpid(pid, 0)
 
     print("\n--- Done ---")
 
