@@ -17,13 +17,12 @@ def main():
     parser.add_argument(
         "-f",
         "--force",
-        type=bool,
         default=False,
         help="Whether to delete additional files which *could* result in data loss.",
         action="store_true",
     )
     parser.add_argument(
-        "-d", "--dry-run", type=bool, default=False, action="store_true"
+        "-d", "--dry-run",  default=False, action="store_true"
     )
     args = parser.parse_args()
 
