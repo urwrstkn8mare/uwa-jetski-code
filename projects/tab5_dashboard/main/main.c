@@ -49,7 +49,22 @@ static void dashboard_timer_cb(lv_timer_t *timer)
 
 void app_main(void)
 {
-    bsp_io_expander_init();
+    esp_io_expander_handle_t io_expander = bsp_io_expander_init();
+
+    /* Enable EXT5V_EN (E1.P2 on PI4IOE5V6408-1 @ 0x43) to power the external 5V bus */
+    if (io_expander != NULL) {
+        esp_err_t ret = esp_io_expander_set_output_mode(io_expander, IO_EXPANDER_PIN_NUM_2, IO_EXPANDER_OUTPUT_MODE_PUSH_PULL);
+        if (ret == ESP_OK) {
+            ret = esp_io_expander_set_level(io_expander, IO_EXPANDER_PIN_NUM_2, 1);
+        }
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "External 5V (EXT5V) enabled successfully");
+        } else {
+            ESP_LOGE(TAG, "Failed to enable external 5V (EXT5V): %s", esp_err_to_name(ret));
+        }
+    } else {
+        ESP_LOGE(TAG, "IO expander not initialized, cannot enable EXT5V");
+    }
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
@@ -67,6 +82,13 @@ void app_main(void)
     lv_display_t *disp = bsp_display_start_with_config(&cfg);
     bsp_display_rotate(disp, LV_DISPLAY_ROTATION_270);
     bsp_display_backlight_on();
+
+    /* Turn off unused features to save power */
+    bsp_feature_enable(BSP_FEATURE_SPEAKER, false);
+    bsp_feature_enable(BSP_FEATURE_CAMERA, false);
+    bsp_feature_enable(BSP_FEATURE_USB, false);
+    bsp_feature_enable(BSP_FEATURE_WIFI, false);
+    ESP_LOGI(TAG, "Unused peripherals (speaker, camera, USB, WiFi) powered off");
 
     if (!bsp_display_lock(0)) {
         ESP_LOGE(TAG, "Failed to lock display");
