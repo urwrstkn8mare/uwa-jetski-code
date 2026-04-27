@@ -4,43 +4,23 @@
 #include "esp_twai.h"
 #include "esp_twai_onchip.h"
 #include "freertos/FreeRTOS.h"
-#include <string.h>
-
-#define LOG(...) ESP_LOGI("can", __VA_ARGS__)
-
-#define TX_FRAME_POOL_SIZE 5
-
-typedef struct {
-  uint8_t buffer[8];
-  twai_frame_t frame;
-  bool in_use;
-} tx_frame_slot_t;
 
 static can_rx_cb_t given_can_rx_cb = NULL;
 static twai_node_handle_t s_node_hdl = NULL;
-static tx_frame_slot_t s_tx_pool[TX_FRAME_POOL_SIZE];
-static SemaphoreHandle_t s_tx_pool_mutex = NULL;
 
-static bool twai_tx_done_cb(twai_node_handle_t handle,
-                            const twai_tx_done_event_data_t *edata,
-                            void *user_ctx) {
-  (void)handle;
-  (void)user_ctx;
-  if (edata == NULL || edata->done_tx_frame == NULL) {
-    return false;
-  }
-  // Find the slot matching the completed frame and mark it free
-  for (int i = 0; i < TX_FRAME_POOL_SIZE; i++) {
-    if (&s_tx_pool[i].frame == edata->done_tx_frame) {
-      if (xSemaphoreTakeFromISR(s_tx_pool_mutex, NULL) == pdTRUE) {
-        s_tx_pool[i].in_use = false;
-        xSemaphoreGiveFromISR(s_tx_pool_mutex, NULL);
-      }
-      break;
-    }
-  }
-  return false;
-}
+// Simple frame buffer pool - reuse persistent buffers
+#define FRAME_POOL_SIZE 5
+static struct {
+  uint8_t buffer[8];
+  twai_frame_t frame;
+} s_frame_pool[FRAME_POOL_SIZE];
+
+static uint8_t s_frame_idx = 0;  // Round-robin through pool
+static SemaphoreHandle_t s_frame_pool_mutex = NULL;
+
+// Diagnostics
+static uint32_t s_tx_attempts = 0;
+static uint32_t s_tx_failures = 0;
 
 static bool twai_rx_cb(twai_node_handle_t handle,
                        const twai_rx_done_event_data_t *edata, void *user_ctx) {
@@ -64,27 +44,25 @@ static bool twai_rx_cb(twai_node_handle_t handle,
 void can_init(can_rx_cb_t can_rx_cb) {
   given_can_rx_cb = can_rx_cb;
 
-  s_tx_pool_mutex = xSemaphoreCreateMutex();
-  if (s_tx_pool_mutex == NULL) {
-    ESP_LOGE("can", "Failed to create TX pool mutex");
+  s_frame_pool_mutex = xSemaphoreCreateMutex();
+  if (s_frame_pool_mutex == NULL) {
+    ESP_LOGE("can", "Failed to create frame pool mutex");
     return;
   }
-  memset(s_tx_pool, 0, sizeof(s_tx_pool));
 
   twai_onchip_node_config_t node_config = {
       .io_cfg.tx = CONFIG_CANTX,    // TWAI TX GPIO pin
       .io_cfg.rx = CONFIG_CANRX,    // TWAI RX GPIO pin
-      .bit_timing.bitrate = 200000, // 200 kbps bitrate
-      .tx_queue_depth = 5,          // Transmit queue depth set to 5
+      .bit_timing.bitrate = CONFIG_CAN_BITRATE,  // Bitrate from kconfig
+      .tx_queue_depth = CONFIG_CAN_TX_QUEUE_DEPTH,  // Queue depth from kconfig
   };
   // Create a new TWAI controller driver instance
   ESP_ERROR_CHECK(twai_new_node_onchip(&node_config, &s_node_hdl));
 
   twai_event_callbacks_t user_cbs = {0};
-  user_cbs.on_tx_done = twai_tx_done_cb;
   if (given_can_rx_cb != NULL) {
     user_cbs.on_rx_done = twai_rx_cb;
-    LOG("CAN rx callback function set");
+    ESP_LOGI("can", "CAN rx callback function set");
   }
   ESP_ERROR_CHECK(
       twai_node_register_event_callbacks(s_node_hdl, &user_cbs, NULL));
@@ -92,10 +70,8 @@ void can_init(can_rx_cb_t can_rx_cb) {
   // Start the TWAI controller
   ESP_ERROR_CHECK(twai_node_enable(s_node_hdl));
 
-  twai_node_status_t status_ret;
-  twai_node_record_t record;
-  twai_node_get_info(s_node_hdl, &status_ret, &record);
-  LOG("Initialised CAN");
+  ESP_LOGI("can", "CAN initialized (fire-and-forget mode, bitrate=%d, queue=%d)", 
+           CONFIG_CAN_BITRATE, CONFIG_CAN_TX_QUEUE_DEPTH);
 }
 
 bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
@@ -116,54 +92,59 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
     }
   }
 
-  if (xSemaphoreTake(s_tx_pool_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-    ESP_LOGE("can", "CAN tx pool mutex timeout");
-    return false;
+  // Get next buffer from round-robin pool
+  if (xSemaphoreTake(s_frame_pool_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
+    s_tx_failures++;
+    return false;  // Just skip if can't acquire quickly
   }
 
-  tx_frame_slot_t *slot = NULL;
-  for (int i = 0; i < TX_FRAME_POOL_SIZE; i++) {
-    if (!s_tx_pool[i].in_use) {
-      slot = &s_tx_pool[i];
-      slot->in_use = true;
-      break;
-    }
-  }
+  // Round-robin through pool
+  uint8_t idx = s_frame_idx;
+  s_frame_idx = (s_frame_idx + 1) % FRAME_POOL_SIZE;
+  xSemaphoreGive(s_frame_pool_mutex);
 
-  if (slot == NULL) {
-    xSemaphoreGive(s_tx_pool_mutex);
-    ESP_LOGE("can", "CAN tx frame pool exhausted");
-    return false;
-  }
-
-  memset(slot->buffer, 0, sizeof(slot->buffer));
+  // Prepare frame in persistent pool buffer
+  memset(s_frame_pool[idx].buffer, 0, sizeof(s_frame_pool[idx].buffer));
   if (data != NULL && len > 0) {
-    memcpy(slot->buffer, data, len);
+    memcpy(s_frame_pool[idx].buffer, data, len);
   }
 
-  slot->frame = (twai_frame_t){
+  s_frame_pool[idx].frame = (twai_frame_t){
       .header = {
           .id = id,
           .dlc = len,
           .ide = 0, // Standard frame (11-bit ID)
           .rtr = 0, // Data frame
       },
-      .buffer = slot->buffer,
+      .buffer = s_frame_pool[idx].buffer,
       .buffer_len = len,
   };
 
-  // Release mutex before blocking transmit so ISR can acquire it for on_tx_done
-  xSemaphoreGive(s_tx_pool_mutex);
-
-  esp_err_t ret = twai_node_transmit(s_node_hdl, &slot->frame, pdMS_TO_TICKS(100));
+  s_tx_attempts++;
+  // Fire-and-forget: try to transmit with 1ms timeout, skip silently if queue full
+  esp_err_t ret = twai_node_transmit(s_node_hdl, &s_frame_pool[idx].frame, pdMS_TO_TICKS(1));
   if (ret != ESP_OK) {
-    // Mark slot free on failure
-    if (xSemaphoreTake(s_tx_pool_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      slot->in_use = false;
-      xSemaphoreGive(s_tx_pool_mutex);
+    s_tx_failures++;
+    if (ret == ESP_ERR_NO_MEM) {
+      // Queue full - expected during load, will retry next cycle with newer data
+      // Log this periodically (every 100 attempts when failing)
+      if ((s_tx_attempts % 100) == 0 && s_tx_failures > 0) {
+        ESP_LOGD("can", "CAN tx queue full (ID 0x%x, failures: %u/%u)", 
+                 id, s_tx_failures, s_tx_attempts);
+      }
+      return false;
     }
-    ESP_LOGE("can", "CAN tx failed: %s", esp_err_to_name(ret));
+    ESP_LOGE("can", "CAN tx failed (ID 0x%x): %s", id, esp_err_to_name(ret));
     return false;
   }
   return true;
+}
+
+void can_get_tx_stats(uint32_t *attempts, uint32_t *failures) {
+  if (attempts != NULL) {
+    *attempts = s_tx_attempts;
+  }
+  if (failures != NULL) {
+    *failures = s_tx_failures;
+  }
 }

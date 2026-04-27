@@ -21,6 +21,8 @@ static const char *TAG = "main";
 
 static volatile uint16_t s_potentiometer_value = 0;
 
+static uint32_t s_loop_count = 0;
+
 static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
     (void)timestamp;
@@ -105,6 +107,18 @@ void app_main(void) {
          memcpy(&servo_data[0], &servo_deg, sizeof(servo_deg));
          can_tx(CAN_ID_SERVO_POS, servo_data, sizeof(servo_data));
 
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+         // Periodically log CAN TX stats (every 10 seconds)
+         s_loop_count++;
+         if (s_loop_count % 200 == 0) {  // 200 × 50ms = 10 seconds
+             uint32_t attempts, failures;
+             can_get_tx_stats(&attempts, &failures);
+             if (failures > 0) {
+                 ESP_LOGW(TAG, "CAN TX stats: %u attempts, %u failures (%.1f%% success)",
+                          attempts, failures, 
+                          100.0f * (attempts - failures) / attempts);
+             }
+         }
+
+         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }

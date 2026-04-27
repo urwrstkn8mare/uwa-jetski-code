@@ -22,3 +22,11 @@ void can_init(can_rx_cb_t can_rx_cb);
  * @return true on success, false on failure
  */
 bool can_tx(uint32_t id, const uint8_t *data, uint8_t len);
+
+/**
+ * @brief Get CAN TX diagnostics (attempts and failures)
+ *
+ * @param[out] attempts: Total transmission attempts
+ * @param[out] failures: Total transmission failures
+ */
+void can_get_tx_stats(uint32_t *attempts, uint32_t *failures);

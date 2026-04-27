@@ -8,4 +8,17 @@ menu "CAN configuration"
         int "CAN transceiver RX GPIO pin"
         default 16
 
+    config CAN_BITRATE
+        int "CAN bitrate (bps)"
+        default 500000
+        help
+            CAN bus bitrate in bits per second. Common values: 100000, 250000, 500000, 1000000
+
+    config CAN_TX_QUEUE_DEPTH
+        int "CAN TX queue depth"
+        default 16
+        range 1 32
+        help
+            Number of frames that can be queued for transmission before blocking/dropping
+
 endmenu
