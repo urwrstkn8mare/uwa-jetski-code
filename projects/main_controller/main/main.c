@@ -1,4 +1,5 @@
 #include "imu.h"
+#include "height.h"
 #include "can.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -9,11 +10,13 @@
 static const char *TAG = "main";
 
 #define CAN_ID_ATTITUDE 0x100
+#define CAN_ID_HEIGHT   0x101
 
 void app_main(void) {
     ESP_ERROR_CHECK(imu_init());
+    ESP_ERROR_CHECK(height_init());
     can_init(NULL);
-    ESP_LOGI(TAG, "IMU and CAN ready, reading pitch/roll...");
+    ESP_LOGI(TAG, "IMU, height sensor and CAN ready");
 
     for (;;) {
         float pitch, roll;
@@ -27,6 +30,17 @@ void app_main(void) {
             memcpy(&can_data[2], &roll_i, sizeof(roll_i));
             can_tx(CAN_ID_ATTITUDE, can_data, sizeof(can_data));
         }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+
+        int32_t height_cm;
+        if (height_get_cm(&height_cm) == ESP_OK) {
+            ESP_LOGI(TAG, "Height: %ld cm", height_cm);
+
+            uint16_t height_u = (uint16_t)height_cm;
+            uint8_t can_data[2];
+            memcpy(&can_data[0], &height_u, sizeof(height_u));
+            can_tx(CAN_ID_HEIGHT, can_data, sizeof(can_data));
+        }
+
+        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }

@@ -11,6 +11,7 @@
 static const char *TAG = "main";
 
 #define CAN_ID_ATTITUDE 0x100
+#define CAN_ID_HEIGHT   0x101
 
 /* Force linker to pull lv_ftsystem.c.obj from lvgl library.
  * lv_ftsystem.c defines FT_Stream_Open using LVGL's filesystem API,
@@ -39,16 +40,24 @@ typedef struct {
 static dashboard_runtime_t s_runtime;
 static volatile int16_t s_rx_pitch = 0;
 static volatile int16_t s_rx_roll = 0;
+static volatile int16_t s_rx_height_cm = 0;
 
 static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
     (void)timestamp;
-    if (header_id == CAN_ID_ATTITUDE && buffer != NULL) {
+    if (buffer == NULL) {
+        return false;
+    }
+    if (header_id == CAN_ID_ATTITUDE) {
         int16_t pitch, roll;
         memcpy(&pitch, &buffer[0], sizeof(pitch));
         memcpy(&roll, &buffer[2], sizeof(roll));
         s_rx_pitch = pitch;
         s_rx_roll = roll;
+    } else if (header_id == CAN_ID_HEIGHT) {
+        uint16_t height_u;
+        memcpy(&height_u, &buffer[0], sizeof(height_u));
+        s_rx_height_cm = (int16_t)height_u;
     }
     return false;
 }
@@ -65,6 +74,7 @@ static void dashboard_timer_cb(lv_timer_t *timer)
     dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
     data.pitch_deg = s_rx_pitch;
     data.roll_deg = s_rx_roll;
+    data.height_cm = s_rx_height_cm;
     dashboard_ui_set_data(runtime->ui, &data);
 }
 

@@ -2,5 +2,5 @@
 # Espressif IoT Development Framework (ESP-IDF) 5.5.3 Project Minimal Configuration
 #
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_CANTX=26
-CONFIG_CANRX=36
+CONFIG_CANTX=16
+CONFIG_CANRX=21

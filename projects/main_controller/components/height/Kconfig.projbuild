@@ -1,0 +1,21 @@
+menu "Height sensor (A02YYUW) configuration"
+
+    config HEIGHT_UART_PORT
+        int "UART port number for A02YYUW"
+        default 2
+        help
+            UART port used to receive data from the A02YYUW ultrasonic sensor.
+
+    config HEIGHT_UART_RX_GPIO
+        int "UART RX GPIO pin for A02YYUW"
+        default 12
+        help
+            GPIO pin connected to the A02YYUW sensor TX pin.
+
+    config HEIGHT_UART_TX_GPIO
+        int "UART TX GPIO pin for A02YYUW"
+        default 13
+        help
+            GPIO pin connected to the A02YYUW sensor RX/mode-select pin.
+
+endmenu
