@@ -41,12 +41,16 @@ static dashboard_runtime_t s_runtime;
 static volatile int16_t s_rx_pitch = 0;
 static volatile int16_t s_rx_roll = 0;
 static volatile int16_t s_rx_height_cm = 0;
+static volatile bool s_got_first_frame = false;
 
 static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
     (void)timestamp;
     if (buffer == NULL) {
         return false;
+    }
+    if (!s_got_first_frame) {
+        s_got_first_frame = true;
     }
     if (header_id == CAN_ID_ATTITUDE) {
         int16_t pitch, roll;
@@ -64,10 +68,16 @@ static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t time
 
 static void dashboard_timer_cb(lv_timer_t *timer)
 {
+    static bool logged_first = false;
     dashboard_runtime_t *runtime = lv_timer_get_user_data(timer);
     if (runtime == NULL || runtime->ui == NULL) {
         lv_timer_pause(timer);
         return;
+    }
+
+    if (!logged_first && s_got_first_frame) {
+        logged_first = true;
+        ESP_LOGI(TAG, "Receiving CAN data");
     }
 
     dashboard_data_t data;
@@ -146,5 +156,5 @@ void app_main(void)
     bsp_display_unlock();
 
     can_init(can_rx_cb);
-    ESP_LOGI(TAG, "CAN initialised, waiting for attitude data...");
+    ESP_LOGI(TAG, "CAN initialised, waiting for data...");
 }

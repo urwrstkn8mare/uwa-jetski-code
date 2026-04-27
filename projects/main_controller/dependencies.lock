@@ -1,10 +1,19 @@
 dependencies:
+  a02yyuw:
+    component_hash: e8482d8ccee1c5e8a0f178580d05ee9ae7753a75e0e1ab83bf04e3f87436738e
+    dependencies: []
+    source:
+      git: https://github.com/SiriusBrightstar/ESP_IDF_A02YYUW.git
+      path: components/a02yyuw
+      type: git
+    version: ef554387861825a4eb2001d176154612082bcb04
   idf:
     source:
       type: idf
     version: 5.5.3
 direct_dependencies:
+- a02yyuw
 - idf
-manifest_hash: e44bf68eca6b7b264ddae08cd014cd3294c0473230381b6d6f88ed18ec879038
+manifest_hash: ed6b997a3c4c44c7757ebe448ed3afe5f0f2c02ed7ef001a609bb53091d36a0a
 target: esp32s3
 version: 2.0.0
