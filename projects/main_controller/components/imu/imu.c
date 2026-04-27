@@ -12,8 +12,8 @@
 #include "inv_mpu_dmp_motion_driver.h"
 #include "esp32_mpu9250_i2c.h"
 
-#define SCL_PIN 39
-#define SDA_PIN 38
+#define SCL_PIN 33
+#define SDA_PIN 32
 #define MPU9250_ADDR 0x68
 
 #define PRE_CONVERGE_US 8000000
