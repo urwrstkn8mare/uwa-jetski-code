@@ -223,8 +223,8 @@ static void imu_task(void *pvParameters) {
 
                 int64_t now = esp_timer_get_time();
                 if (now - last_log >= LOG_INTERVAL_US) {
-                    ESP_LOGI(TAG, "Pitch: %6.2f deg  Roll: %6.2f deg", pitch,
-                             roll);
+                    // ESP_LOGI(TAG, "Pitch: %6.2f deg  Roll: %6.2f deg", pitch,
+                    //          roll);
                     last_log = now;
                 }
             }

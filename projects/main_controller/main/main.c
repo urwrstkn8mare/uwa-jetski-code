@@ -9,19 +9,34 @@
 
 static const char *TAG = "main";
 
-#define CAN_ID_ATTITUDE 0x100
-#define CAN_ID_HEIGHT   0x101
+#define CAN_ID_ATTITUDE    0x100
+#define CAN_ID_HEIGHT      0x101
+#define CAN_ID_POTENTIOMETER 0x102
+
+static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
+{
+    (void)timestamp;
+    if (buffer == NULL) {
+        return false;
+    }
+    if (header_id == CAN_ID_POTENTIOMETER) {
+        uint16_t pot_val;
+        memcpy(&pot_val, &buffer[0], sizeof(pot_val));
+        ESP_LOGI(TAG, "Potentiometer: %u", pot_val);
+    }
+    return false;
+}
 
 void app_main(void) {
     ESP_ERROR_CHECK(imu_init());
     ESP_ERROR_CHECK(height_init());
-    can_init(NULL);
+    can_init(can_rx_cb);
     ESP_LOGI(TAG, "IMU, height sensor and CAN ready");
 
     for (;;) {
         float pitch, roll;
         if (imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
-            ESP_LOGI(TAG, "Pitch: %6.2f deg  Roll: %6.2f deg", pitch, roll);
+            // ESP_LOGI(TAG, "Pitch: %6.2f deg  Roll: %6.2f deg", pitch, roll);
 
             int16_t pitch_i = (int16_t)roundf(pitch);
             int16_t roll_i = (int16_t)roundf(roll);
@@ -33,7 +48,7 @@ void app_main(void) {
 
         int32_t height_cm;
         if (height_get_cm(&height_cm) == ESP_OK) {
-            ESP_LOGI(TAG, "Height: %ld cm", height_cm);
+            // ESP_LOGI(TAG, "Height: %ld cm", height_cm);
 
             uint16_t height_u = (uint16_t)height_cm;
             uint8_t can_data[2];

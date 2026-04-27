@@ -7,11 +7,15 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "esp_adc/adc_oneshot.h"
 
 static const char *TAG = "main";
 
-#define CAN_ID_ATTITUDE 0x100
-#define CAN_ID_HEIGHT   0x101
+#define CAN_ID_ATTITUDE    0x100
+#define CAN_ID_HEIGHT      0x101
+#define CAN_ID_POTENTIOMETER 0x102
+
+
 
 /* Force linker to pull lv_ftsystem.c.obj from lvgl library.
  * lv_ftsystem.c defines FT_Stream_Open using LVGL's filesystem API,
@@ -42,6 +46,7 @@ static volatile int16_t s_rx_pitch = 0;
 static volatile int16_t s_rx_roll = 0;
 static volatile int16_t s_rx_height_cm = 0;
 static volatile bool s_got_first_frame = false;
+static adc_oneshot_unit_handle_t s_adc_handle = NULL;
 
 static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
@@ -86,6 +91,29 @@ static void dashboard_timer_cb(lv_timer_t *timer)
     data.roll_deg = s_rx_roll;
     data.height_cm = s_rx_height_cm;
     dashboard_ui_set_data(runtime->ui, &data);
+
+    if (s_adc_handle != NULL && s_got_first_frame) {
+        int adc_raw = 0;
+        adc_channel_t channel;
+        adc_unit_t unit;
+        if (adc_oneshot_io_to_channel(CONFIG_POTENTIOMETER_GPIO, &unit, &channel) == ESP_OK) {
+            if (adc_oneshot_read(s_adc_handle, channel, &adc_raw) == ESP_OK) {
+                int min_val = CONFIG_POTENTIOMETER_MIN_VALUE;
+                int max_val = CONFIG_POTENTIOMETER_MAX_VALUE;
+                int clamped = adc_raw;
+                if (clamped < min_val) clamped = min_val;
+                if (clamped > max_val) clamped = max_val;
+                uint16_t scaled = 0;
+                if (max_val > min_val) {
+                    scaled = (uint16_t)(((int64_t)(clamped - min_val) * 100) / (max_val - min_val));
+                }
+                ESP_LOGI(TAG, "Potentiometer raw=%d scaled=%u", adc_raw, scaled);
+                uint8_t can_data[2];
+                memcpy(&can_data[0], &scaled, sizeof(scaled));
+                can_tx(CAN_ID_POTENTIOMETER, can_data, sizeof(can_data));
+            }
+        }
+    }
 }
 
 void app_main(void)
@@ -154,6 +182,26 @@ void app_main(void)
 
     (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
     bsp_display_unlock();
+
+    adc_oneshot_unit_init_cfg_t adc_cfg = {
+        .unit_id = ADC_UNIT_2,
+        .clk_src = ADC_DIGI_CLK_SRC_DEFAULT,
+    };
+    if (adc_oneshot_new_unit(&adc_cfg, &s_adc_handle) == ESP_OK) {
+        adc_oneshot_chan_cfg_t chan_cfg = {
+            .atten = ADC_ATTEN_DB_12,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        adc_channel_t channel;
+        adc_unit_t unit;
+        if (adc_oneshot_io_to_channel(CONFIG_POTENTIOMETER_GPIO, &unit, &channel) == ESP_OK) {
+            if (adc_oneshot_config_channel(s_adc_handle, channel, &chan_cfg) == ESP_OK) {
+                ESP_LOGI(TAG, "ADC initialised on GPIO %d", CONFIG_POTENTIOMETER_GPIO);
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to initialise ADC");
+    }
 
     can_init(can_rx_cb);
     ESP_LOGI(TAG, "CAN initialised, waiting for data...");

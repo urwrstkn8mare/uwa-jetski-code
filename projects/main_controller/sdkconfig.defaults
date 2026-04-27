@@ -1,6 +1,8 @@
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) 5.5.3 Project Minimal Configuration
 #
+CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_CANTX=16
 CONFIG_CANRX=21
+CONFIG_LOG_VERSION_2=y
