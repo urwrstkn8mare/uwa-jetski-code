@@ -52,6 +52,7 @@ def main():
 
             trigger_time = time.time() + args.timeout
             sent_flag = False
+            stdin_fd = sys.stdin.fileno() if terminal_is_interactive else None
             while True:
                 # Calculate how much time is left until the injection
                 current_time = time.time()
@@ -61,8 +62,10 @@ def main():
                     remaining = max(0, trigger_time - current_time)
 
                 # select() will block until data is ready OR 'remaining' seconds pass
-                stdin_fd = sys.stdin.fileno()
-                rfds, _, _ = select.select([master_fd, stdin_fd], [], [], remaining)
+                select_fds = [master_fd]
+                if stdin_fd is not None:
+                    select_fds.append(stdin_fd)
+                rfds, _, _ = select.select(select_fds, [], [], remaining)
 
                 # Check if the timer hit while we were blocking
                 if not sent_flag and args.timeout > 0 and time.time() >= trigger_time:
@@ -85,7 +88,7 @@ def main():
                         raise
 
                 # Forward your typing to the child
-                if stdin_fd in rfds:
+                if stdin_fd is not None and stdin_fd in rfds:
                     data = os.read(stdin_fd, 1024)
                     if not data:
                         break
