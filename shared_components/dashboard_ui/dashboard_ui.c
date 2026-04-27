@@ -1091,23 +1091,71 @@ void dashboard_ui_destroy(dashboard_ui_t *ui) {
   free(ui);
 }
 
+void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
+  if (ui == NULL) {
+    return;
+  }
+  speed_card_set_val(&ui->speed, speed_kmh, 100);
+}
+
+void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm) {
+  if (ui == NULL) {
+    return;
+  }
+  height_card_set_val(&ui->height, height_cm, height_target_cm, 50);
+}
+
+void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg) {
+  if (ui == NULL) {
+    return;
+  }
+  attitude_card_set_val(&ui->attitude, roll_deg, pitch_deg, heading_deg);
+}
+
+void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c) {
+  if (ui == NULL) {
+    return;
+  }
+  battery_card_set_val(&ui->battery, percent, voltage_v, current_a, temp_c);
+}
+
+void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c) {
+  if (ui == NULL || index < 0 || index >= DASHBOARD_MOTOR_MAX) {
+    return;
+  }
+  motor_card_set_val(&ui->motors[index], percent, power_kw_x10, rpm, temp_c);
+}
+
+void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
+  if (ui == NULL) {
+    return;
+  }
+  control_surface_card_set_val(&ui->rudder, rudder_deg);
+}
+
+void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg) {
+  if (ui == NULL) {
+    return;
+  }
+  control_surface_card_set_val(&ui->elevon_left, left_deg);
+  control_surface_card_set_val(&ui->elevon_right, right_deg);
+}
+
 void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
   if (ui == NULL || data == NULL) {
     return;
   }
 
-  speed_card_set_val(&ui->speed, data->speed_kmh, 100);
-  height_card_set_val(&ui->height, data->height_cm, data->height_target_cm, 50);
-  attitude_card_set_val(&ui->attitude, data->roll_deg, data->pitch_deg,
-                        data->heading_deg);
-  battery_card_set_val(&ui->battery, data->battery_percent, data->battery_voltage_v,
-                        data->battery_current_a, data->battery_temp_c);
+  dashboard_ui_set_speed(ui, data->speed_kmh);
+  dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
+  dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
+  dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
+                           data->battery_current_a, data->battery_temp_c);
   for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
-    motor_card_set_val(&ui->motors[i], data->motor_percent[i],
-                       data->motor_power_kw_x10[i], data->motor_rpm[i],
-                       data->motor_temp_c[i]);
+    dashboard_ui_set_motor(ui, i, data->motor_percent[i],
+                           data->motor_power_kw_x10[i], data->motor_rpm[i],
+                           data->motor_temp_c[i]);
   }
-  control_surface_card_set_val(&ui->rudder, data->rudder_deg);
-  control_surface_card_set_val(&ui->elevon_left, data->elevon_left_deg);
-  control_surface_card_set_val(&ui->elevon_right, data->elevon_right_deg);
+  dashboard_ui_set_rudder(ui, data->rudder_deg);
+  dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
 }

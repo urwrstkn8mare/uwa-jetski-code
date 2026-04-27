@@ -38,3 +38,13 @@ void dashboard_ui_set_font_callback(font_get_cb_t cb, void *user_data);
 dashboard_ui_t *dashboard_ui_create(lv_obj_t *screen);
 void dashboard_ui_destroy(dashboard_ui_t *ui);
 void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data);
+
+/* Per-box partial updates — use these when only a subset of data changes
+ * to avoid redundant LVGL redraws of untouched cards. */
+void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh);
+void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm);
+void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg);
+void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c);
+void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c);
+void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg);
+void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg);

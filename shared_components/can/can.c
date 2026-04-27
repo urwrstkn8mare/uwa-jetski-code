@@ -1,86 +1,270 @@
 #include "can.h"
+
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_twai.h"
 #include "esp_twai_onchip.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include <string.h>
 
-static can_rx_cb_t given_can_rx_cb = NULL;
+static const char *TAG = "can";
+
+static can_rx_cb_t s_given_can_rx_cb = NULL;
 static twai_node_handle_t s_node_hdl = NULL;
 
-// Simple frame buffer pool - reuse persistent buffers
-#define FRAME_POOL_SIZE 5
-static struct {
-  uint8_t buffer[8];
+/* ---------- Frame pool for safe asynchronous TX ----------
+ * The TWAI driver queues twai_frame_t * pointers internally.
+ * Frame memory must remain valid until on_tx_done fires.
+ * We allocate a static pool and recycle via a free-queue.
+ */
+#define CAN_FRAME_POOL_SIZE (CONFIG_CAN_TX_QUEUE_DEPTH + 4)
+
+typedef struct {
   twai_frame_t frame;
-} s_frame_pool[FRAME_POOL_SIZE];
+  uint8_t buffer[8];
+} can_frame_buf_t;
 
-static uint8_t s_frame_idx = 0;  // Round-robin through pool
-static SemaphoreHandle_t s_frame_pool_mutex = NULL;
+static can_frame_buf_t s_frame_pool[CAN_FRAME_POOL_SIZE];
+static QueueHandle_t s_free_frame_queue = NULL;
 
-// Diagnostics
+/* ---------- TX worker ---------- */
+typedef struct {
+  uint32_t id;
+  uint8_t data[8];
+  uint8_t len;
+} can_tx_req_t;
+
+static QueueHandle_t s_tx_req_queue = NULL;
+static TaskHandle_t s_tx_task_hdl = NULL;
+
+/* ---------- RX worker ---------- */
+typedef struct {
+  uint8_t buffer[8];
+  uint32_t id;
+  uint64_t timestamp;
+  uint8_t len;
+} can_rx_msg_t;
+
+static QueueHandle_t s_rx_queue = NULL;
+static TaskHandle_t s_rx_task_hdl = NULL;
+
+/* Diagnostics */
 static uint32_t s_tx_attempts = 0;
 static uint32_t s_tx_failures = 0;
 
-static bool twai_rx_cb(twai_node_handle_t handle,
-                       const twai_rx_done_event_data_t *edata, void *user_ctx) {
-  (void)edata;
+/* ---------- ISR callbacks (must be in IRAM) ---------- */
+static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
+                                     const twai_tx_done_event_data_t *edata,
+                                     void *user_ctx) {
+  (void)handle;
   (void)user_ctx;
-  assert(given_can_rx_cb != NULL &&
-         "No given CAN rx callback (must call `can_init()`)");
-
-  uint8_t recv_buff[8];
-  twai_frame_t rx_frame = {
-      .buffer = recv_buff,
-      .buffer_len = sizeof(recv_buff),
-  };
-  if (ESP_OK == twai_node_receive_from_isr(handle, &rx_frame)) {
-    return given_can_rx_cb(recv_buff, rx_frame.header.id,
-                           rx_frame.header.timestamp);
-  }
-  return false;
+  const twai_frame_t *done_frame = edata->done_tx_frame;
+  can_frame_buf_t *fb = (can_frame_buf_t *)done_frame; /* frame is first member */
+  BaseType_t yield = pdFALSE;
+  xQueueSendFromISR(s_free_frame_queue, &fb, &yield);
+  return yield == pdTRUE;
 }
 
-void can_init(can_rx_cb_t can_rx_cb) {
-  given_can_rx_cb = can_rx_cb;
+static IRAM_ATTR bool can_rx_done_cb(twai_node_handle_t handle,
+                                     const twai_rx_done_event_data_t *edata,
+                                     void *user_ctx) {
+  (void)edata;
+  (void)user_ctx;
+  uint8_t buf[8];
+  twai_frame_t rx_frame = {
+      .buffer = buf,
+      .buffer_len = sizeof(buf),
+  };
+  if (twai_node_receive_from_isr(handle, &rx_frame) != ESP_OK) {
+    return false;
+  }
+  can_rx_msg_t msg;
+  memset(&msg, 0, sizeof(msg));
+  uint8_t dlen = (rx_frame.buffer_len > 8) ? 8 : (uint8_t)rx_frame.buffer_len;
+  memcpy(msg.buffer, rx_frame.buffer, dlen);
+  msg.id = rx_frame.header.id;
+  msg.timestamp = rx_frame.header.timestamp;
+  msg.len = dlen;
+  BaseType_t yield = pdFALSE;
+  xQueueSendFromISR(s_rx_queue, &msg, &yield);
+  return yield == pdTRUE;
+}
 
-  s_frame_pool_mutex = xSemaphoreCreateMutex();
-  if (s_frame_pool_mutex == NULL) {
-    ESP_LOGE("can", "Failed to create frame pool mutex");
-    return;
+/* ---------- Worker tasks ---------- */
+static void can_tx_task(void *arg) {
+  (void)arg;
+  can_tx_req_t req;
+  for (;;) {
+    if (xQueueReceive(s_tx_req_queue, &req, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+    can_frame_buf_t *fb = NULL;
+    if (xQueueReceive(s_free_frame_queue, &fb, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+    if (req.len > 8) {
+      req.len = 8;
+    }
+    if (req.len > 0) {
+      memcpy(fb->buffer, req.data, req.len);
+    } else {
+      memset(fb->buffer, 0, sizeof(fb->buffer));
+    }
+    fb->frame.header = (twai_frame_header_t){
+        .id = req.id,
+        .dlc = req.len,
+        .ide = 0,
+        .rtr = 0,
+    };
+    fb->frame.buffer = fb->buffer;
+    fb->frame.buffer_len = req.len;
+
+    esp_err_t ret = twai_node_transmit(s_node_hdl, &fb->frame, portMAX_DELAY);
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "CAN tx failed (ID 0x%x): %s", req.id, esp_err_to_name(ret));
+      xQueueSend(s_free_frame_queue, &fb, 0);
+    }
+  }
+}
+
+static void can_rx_task(void *arg) {
+  (void)arg;
+  can_rx_msg_t msg;
+  for (;;) {
+    if (xQueueReceive(s_rx_queue, &msg, portMAX_DELAY) != pdTRUE) {
+      continue;
+    }
+    if (s_given_can_rx_cb != NULL) {
+      s_given_can_rx_cb(msg.buffer, msg.id, msg.timestamp);
+    }
+  }
+}
+
+/* ---------- Public API ---------- */
+esp_err_t can_init(can_rx_cb_t can_rx_cb) {
+  if (s_node_hdl != NULL) {
+    ESP_LOGW(TAG, "CAN already initialised");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  s_given_can_rx_cb = can_rx_cb;
+
+  s_free_frame_queue = xQueueCreate(CAN_FRAME_POOL_SIZE, sizeof(can_frame_buf_t *));
+  if (s_free_frame_queue == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+
+  s_tx_req_queue = xQueueCreate(CONFIG_CAN_TX_QUEUE_DEPTH, sizeof(can_tx_req_t));
+  if (s_tx_req_queue == NULL) {
+    vQueueDelete(s_free_frame_queue);
+    s_free_frame_queue = NULL;
+    return ESP_ERR_NO_MEM;
+  }
+
+  s_rx_queue = xQueueCreate(CONFIG_CAN_TX_QUEUE_DEPTH, sizeof(can_rx_msg_t));
+  if (s_rx_queue == NULL) {
+    vQueueDelete(s_tx_req_queue);
+    vQueueDelete(s_free_frame_queue);
+    s_tx_req_queue = NULL;
+    s_free_frame_queue = NULL;
+    return ESP_ERR_NO_MEM;
+  }
+
+  for (int i = 0; i < CAN_FRAME_POOL_SIZE; i++) {
+    s_frame_pool[i].frame.buffer = s_frame_pool[i].buffer;
+    s_frame_pool[i].frame.buffer_len = sizeof(s_frame_pool[i].buffer);
+    can_frame_buf_t *ptr = &s_frame_pool[i];
+    xQueueSend(s_free_frame_queue, &ptr, 0);
   }
 
   twai_onchip_node_config_t node_config = {
-      .io_cfg.tx = CONFIG_CANTX,    // TWAI TX GPIO pin
-      .io_cfg.rx = CONFIG_CANRX,    // TWAI RX GPIO pin
-      .bit_timing.bitrate = CONFIG_CAN_BITRATE,  // Bitrate from kconfig
-      .tx_queue_depth = CONFIG_CAN_TX_QUEUE_DEPTH,  // Queue depth from kconfig
+      .io_cfg.tx = CONFIG_CANTX,
+      .io_cfg.rx = CONFIG_CANRX,
+      .bit_timing.bitrate = CONFIG_CAN_BITRATE,
+      .tx_queue_depth = CONFIG_CAN_TX_QUEUE_DEPTH,
   };
-  // Create a new TWAI controller driver instance
-  ESP_ERROR_CHECK(twai_new_node_onchip(&node_config, &s_node_hdl));
+  esp_err_t ret = twai_new_node_onchip(&node_config, &s_node_hdl);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "twai_new_node_onchip failed: %s", esp_err_to_name(ret));
+    goto cleanup;
+  }
 
   twai_event_callbacks_t user_cbs = {0};
-  if (given_can_rx_cb != NULL) {
-    user_cbs.on_rx_done = twai_rx_cb;
-    ESP_LOGI("can", "CAN rx callback function set");
+  user_cbs.on_tx_done = can_tx_done_cb;
+  if (s_given_can_rx_cb != NULL) {
+    user_cbs.on_rx_done = can_rx_done_cb;
+    ESP_LOGI(TAG, "CAN rx callback registered");
   }
-  ESP_ERROR_CHECK(
-      twai_node_register_event_callbacks(s_node_hdl, &user_cbs, NULL));
+  ret = twai_node_register_event_callbacks(s_node_hdl, &user_cbs, NULL);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "twai_node_register_event_callbacks failed: %s", esp_err_to_name(ret));
+    goto cleanup;
+  }
 
-  // Start the TWAI controller
-  ESP_ERROR_CHECK(twai_node_enable(s_node_hdl));
+  ret = twai_node_enable(s_node_hdl);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "twai_node_enable failed: %s", esp_err_to_name(ret));
+    goto cleanup;
+  }
 
-  ESP_LOGI("can", "CAN initialized (fire-and-forget mode, bitrate=%d, queue=%d)", 
-           CONFIG_CAN_BITRATE, CONFIG_CAN_TX_QUEUE_DEPTH);
+  BaseType_t task_ret = xTaskCreate(can_tx_task, "can_tx", 4096, NULL, 5, &s_tx_task_hdl);
+  if (task_ret != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create can_tx task");
+    ret = ESP_ERR_NO_MEM;
+    goto cleanup;
+  }
+
+  if (s_given_can_rx_cb != NULL) {
+    task_ret = xTaskCreate(can_rx_task, "can_rx", 8192, NULL, 5, &s_rx_task_hdl);
+    if (task_ret != pdPASS) {
+      ESP_LOGE(TAG, "Failed to create can_rx task");
+      ret = ESP_ERR_NO_MEM;
+      goto cleanup;
+    }
+  }
+
+  ESP_LOGI(TAG, "CAN initialised (bitrate=%d, queue=%d)", CONFIG_CAN_BITRATE,
+           CONFIG_CAN_TX_QUEUE_DEPTH);
+  return ESP_OK;
+
+cleanup:
+  if (s_tx_task_hdl != NULL) {
+    vTaskDelete(s_tx_task_hdl);
+    s_tx_task_hdl = NULL;
+  }
+  if (s_rx_task_hdl != NULL) {
+    vTaskDelete(s_rx_task_hdl);
+    s_rx_task_hdl = NULL;
+  }
+  if (s_node_hdl != NULL) {
+    twai_node_disable(s_node_hdl);
+    twai_node_delete(s_node_hdl);
+    s_node_hdl = NULL;
+  }
+  if (s_tx_req_queue != NULL) {
+    vQueueDelete(s_tx_req_queue);
+    s_tx_req_queue = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  if (s_free_frame_queue != NULL) {
+    vQueueDelete(s_free_frame_queue);
+    s_free_frame_queue = NULL;
+  }
+  return ret;
 }
 
 bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
   if (s_node_hdl == NULL) {
-    ESP_LOGE("can", "CAN not initialized");
+    ESP_LOGE(TAG, "CAN not initialised");
     return false;
   }
   if (len > 8) {
-    ESP_LOGE("can", "CAN data length exceeds 8 bytes");
+    ESP_LOGE(TAG, "CAN data length exceeds 8 bytes");
     return false;
   }
 
@@ -92,49 +276,17 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
     }
   }
 
-  // Get next buffer from round-robin pool
-  if (xSemaphoreTake(s_frame_pool_mutex, pdMS_TO_TICKS(10)) != pdTRUE) {
-    s_tx_failures++;
-    return false;  // Just skip if can't acquire quickly
-  }
-
-  // Round-robin through pool
-  uint8_t idx = s_frame_idx;
-  s_frame_idx = (s_frame_idx + 1) % FRAME_POOL_SIZE;
-  xSemaphoreGive(s_frame_pool_mutex);
-
-  // Prepare frame in persistent pool buffer
-  memset(s_frame_pool[idx].buffer, 0, sizeof(s_frame_pool[idx].buffer));
+  can_tx_req_t req = {.id = id, .len = len};
   if (data != NULL && len > 0) {
-    memcpy(s_frame_pool[idx].buffer, data, len);
+    memcpy(req.data, data, len);
   }
-
-  s_frame_pool[idx].frame = (twai_frame_t){
-      .header = {
-          .id = id,
-          .dlc = len,
-          .ide = 0, // Standard frame (11-bit ID)
-          .rtr = 0, // Data frame
-      },
-      .buffer = s_frame_pool[idx].buffer,
-      .buffer_len = len,
-  };
 
   s_tx_attempts++;
-  // Fire-and-forget: try to transmit with 1ms timeout, skip silently if queue full
-  esp_err_t ret = twai_node_transmit(s_node_hdl, &s_frame_pool[idx].frame, pdMS_TO_TICKS(1));
-  if (ret != ESP_OK) {
+  if (xQueueSend(s_tx_req_queue, &req, pdMS_TO_TICKS(10)) != pdTRUE) {
     s_tx_failures++;
-    if (ret == ESP_ERR_NO_MEM) {
-      // Queue full - expected during load, will retry next cycle with newer data
-      // Log this periodically (every 100 attempts when failing)
-      if ((s_tx_attempts % 100) == 0 && s_tx_failures > 0) {
-        ESP_LOGD("can", "CAN tx queue full (ID 0x%x, failures: %u/%u)", 
-                 id, s_tx_failures, s_tx_attempts);
-      }
-      return false;
+    if ((s_tx_attempts % 100) == 0) {
+      ESP_LOGD(TAG, "CAN tx request queue full (ID 0x%x)", id);
     }
-    ESP_LOGE("can", "CAN tx failed (ID 0x%x): %s", id, esp_err_to_name(ret));
     return false;
   }
   return true;

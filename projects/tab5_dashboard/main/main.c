@@ -4,19 +4,13 @@
 #include "dashboard_ui.h"
 #include "ui/dashboard_font.h"
 #include "can.h"
+#include "can_ids.h"
 
 #include <stdint.h>
 #include <string.h>
 #include "esp_adc/adc_oneshot.h"
 
 static const char *TAG = "main";
-
-#define CAN_ID_ATTITUDE    0x100
-#define CAN_ID_HEIGHT      0x101
-#define CAN_ID_POTENTIOMETER 0x102
-#define CAN_ID_SERVO_POS   0x103
-
-
 
 /* Force linker to pull lv_ftsystem.c.obj from lvgl library.
  * lv_ftsystem.c defines FT_Stream_Open using LVGL's filesystem API,
@@ -98,28 +92,38 @@ static void dashboard_timer_cb(lv_timer_t *timer)
     data.height_cm = s_rx_height_cm;
     data.rudder_deg = s_rx_servo_deg;
     dashboard_ui_set_data(runtime->ui, &data);
+}
 
-    if (s_adc_handle != NULL && s_got_first_frame) {
-        int adc_raw = 0;
-        adc_channel_t channel;
-        adc_unit_t unit;
-        if (adc_oneshot_io_to_channel(CONFIG_POTENTIOMETER_GPIO, &unit, &channel) == ESP_OK) {
-            if (adc_oneshot_read(s_adc_handle, channel, &adc_raw) == ESP_OK) {
-                int min_val = CONFIG_POTENTIOMETER_MIN_VALUE;
-                int max_val = CONFIG_POTENTIOMETER_MAX_VALUE;
-                int clamped = adc_raw;
-                if (clamped < min_val) clamped = min_val;
-                if (clamped > max_val) clamped = max_val;
-                uint16_t scaled = 0;
-                if (max_val > min_val) {
-                    scaled = (uint16_t)(((int64_t)(clamped - min_val) * 100) / (max_val - min_val));
+/* Dedicated high-priority task for potentiometer -> CAN.
+ * Runs independently of LVGL so a display crash/hang cannot
+ * stop control inputs from reaching the bus. */
+static void potentiometer_tx_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (s_adc_handle != NULL && s_got_first_frame) {
+            int adc_raw = 0;
+            adc_channel_t channel;
+            adc_unit_t unit;
+            if (adc_oneshot_io_to_channel(CONFIG_POTENTIOMETER_GPIO, &unit, &channel) == ESP_OK) {
+                if (adc_oneshot_read(s_adc_handle, channel, &adc_raw) == ESP_OK) {
+                    int min_val = CONFIG_POTENTIOMETER_MIN_VALUE;
+                    int max_val = CONFIG_POTENTIOMETER_MAX_VALUE;
+                    int clamped = adc_raw;
+                    if (clamped < min_val) clamped = min_val;
+                    if (clamped > max_val) clamped = max_val;
+                    uint16_t scaled = 0;
+                    if (max_val > min_val) {
+                        scaled = (uint16_t)(((int64_t)(clamped - min_val) * 100) / (max_val - min_val));
+                    }
+                    ESP_LOGI(TAG, "Potentiometer raw=%d scaled=%u", adc_raw, scaled);
+                    uint8_t can_data[2];
+                    memcpy(&can_data[0], &scaled, sizeof(scaled));
+                    can_tx(CAN_ID_POTENTIOMETER, can_data, sizeof(can_data));
                 }
-                ESP_LOGI(TAG, "Potentiometer raw=%d scaled=%u", adc_raw, scaled);
-                uint8_t can_data[2];
-                memcpy(&can_data[0], &scaled, sizeof(scaled));
-                can_tx(CAN_ID_POTENTIOMETER, can_data, sizeof(can_data));
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -210,6 +214,10 @@ void app_main(void)
         ESP_LOGE(TAG, "Failed to initialise ADC");
     }
 
-    can_init(can_rx_cb);
+    ESP_ERROR_CHECK(can_init(can_rx_cb));
     ESP_LOGI(TAG, "CAN initialised, waiting for data...");
+
+    /* Spawn input task at higher priority than LVGL so display
+     * issues cannot stall control outputs. */
+    xTaskCreate(potentiometer_tx_task, "pot_tx", 4096, NULL, 10, NULL);
 }
