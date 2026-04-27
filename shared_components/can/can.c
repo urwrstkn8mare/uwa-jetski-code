@@ -70,6 +70,14 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
     return false;
   }
 
+  twai_node_status_t status;
+  if (twai_node_get_info(s_node_hdl, &status, NULL) == ESP_OK) {
+    if (status.state == TWAI_ERROR_BUS_OFF) {
+      twai_node_recover(s_node_hdl);
+      return false;
+    }
+  }
+
   uint8_t tx_buff[8] = {0};
   if (data != NULL && len > 0) {
     memcpy(tx_buff, data, len);

@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS "ws_display.c" "ws_display_font.c" "waveshare_rgb_lcd_port.c"
-    INCLUDE_DIRS "include" "."
+    INCLUDE_DIRS "include"
+    PRIV_INCLUDE_DIRS "priv_include"
     REQUIRES esp_lcd driver
     PRIV_REQUIRES lvgl__lvgl espressif__esp_lvgl_adapter espressif__esp_mmap_assets espressif__esp_lv_fs
 )

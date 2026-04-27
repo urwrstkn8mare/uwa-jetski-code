@@ -4,7 +4,6 @@ idf_component_register(
         "dashboard_demo.c"
     INCLUDE_DIRS
         "include"
-        "."
     REQUIRES
         lvgl
 )

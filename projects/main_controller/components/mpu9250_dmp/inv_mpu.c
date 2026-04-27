@@ -42,8 +42,8 @@
 #define i2c_read(a, b, c, d)  esp32_i2c_read(a, b, c, d)
 #define delay_ms  esp32_delay_ms
 #define get_ms    esp32_get_clock_ms
-#define log_i(...)
-#define log_e(...)
+#define log_i(...) do { } while(0)
+#define log_e(...) do { } while(0)
 static inline int reg_int_cb(struct int_param_s *int_param)
 {
     return 0;
@@ -2238,7 +2238,7 @@ static int accel_6500_self_test(long *bias_regular, long *bias_st, int debug)
 		if(debug)
 			log_i("Accel:CRITERIA C: bias less than %7.4f\n", accel_offset_max/1.f);
 		for (i = 0; i < 3; i++) {
-			if(fabs(bias_regular[i]) > accel_offset_max) {
+			if(labs(bias_regular[i]) > accel_offset_max) {
 				if(debug)
 					log_i("FAILED: Accel axis:%d = %ld > 500mg\n", i, bias_regular[i]);
 				result |= 1 << i;	//Error condition
@@ -2332,7 +2332,7 @@ static int gyro_6500_self_test(long *bias_regular, long *bias_st, int debug)
 		if(debug)
 			log_i("Gyro:CRITERIA C: bias less than %7.4f\n", gyro_offset_max/1.f);
 		for (i = 0; i < 3; i++) {
-			if(fabs(bias_regular[i]) > gyro_offset_max) {
+			if(labs(bias_regular[i]) > gyro_offset_max) {
 				if(debug)
 					log_i("FAILED: Gyro axis:%d = %ld > 20dps\n", i, bias_regular[i]);
 				result |= 1 << i;	//Error condition

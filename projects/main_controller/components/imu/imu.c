@@ -93,7 +93,8 @@ static void imu_task(void *pvParameters) {
     esp32_i2c_init(bus_handle, MPU9250_ADDR);
 
     ESP_LOGI(TAG, "Initializing MPU9250 DMP...");
-    struct int_param_s int_param = {0};
+    struct int_param_s int_param;
+    memset(&int_param, 0, sizeof(int_param));
     if (mpu_init(&int_param) != 0) {
         ESP_LOGE(TAG, "mpu_init failed");
         vTaskDelete(NULL);
