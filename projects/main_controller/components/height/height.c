@@ -12,6 +12,7 @@ static const char *TAG = "height";
 static SemaphoreHandle_t s_mutex;
 static int32_t s_height_cm = 0;
 static bool s_initialized = false;
+static bool s_init_failed = false;
 
 static void height_task(void *pvParameters) {
     (void)pvParameters;
@@ -27,6 +28,7 @@ static void height_task(void *pvParameters) {
                                  A02YYUW_PIN_SELECT_PROCESSED);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "a02yyuw_init failed: %s", esp_err_to_name(ret));
+        s_init_failed = true;
         vTaskDelete(NULL);
         return;
     }
@@ -40,7 +42,13 @@ static void height_task(void *pvParameters) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    ESP_ERROR_CHECK(uart_param_config(CONFIG_HEIGHT_UART_PORT, &uart_config));
+    ret = uart_param_config(CONFIG_HEIGHT_UART_PORT, &uart_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "uart_param_config failed: %s", esp_err_to_name(ret));
+        s_init_failed = true;
+        vTaskDelete(NULL);
+        return;
+    }
 
     ESP_LOGI(TAG, "A02YYUW ready on port %d RX GPIO %d mode-select GPIO %d (processed)",
              CONFIG_HEIGHT_UART_PORT, CONFIG_HEIGHT_UART_RX_GPIO, CONFIG_HEIGHT_UART_TX_GPIO);
@@ -60,6 +68,7 @@ static void height_task(void *pvParameters) {
         } else {
             ESP_LOGD(TAG, "Read failed: %s", esp_err_to_name(ret));
         }
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -72,8 +81,19 @@ esp_err_t height_init(void) {
 
     xTaskCreate(height_task, "height_task", 4096, NULL, 1, NULL);
 
-    while (!s_initialized) {
+    const int max_wait = 100; /* 10 seconds timeout */
+    int waited = 0;
+    while (!s_initialized && !s_init_failed && waited < max_wait) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
+        waited++;
+    }
+    if (s_init_failed) {
+        ESP_LOGE(TAG, "Height task failed to initialise");
+        return ESP_FAIL;
+    }
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "Height initialisation timed out");
+        return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;
 }

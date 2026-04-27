@@ -37,21 +37,25 @@ typedef struct {
 } dashboard_runtime_t;
 
 static dashboard_runtime_t s_runtime;
-static volatile int16_t s_rx_pitch = 0;
-static volatile int16_t s_rx_roll = 0;
-static volatile int16_t s_rx_height_cm = 0;
-static volatile int16_t s_rx_servo_deg = 0;
-static volatile bool s_got_first_frame = false;
+static SemaphoreHandle_t s_can_data_mutex;
+static int16_t s_rx_pitch = 0;
+static int16_t s_rx_roll = 0;
+static int16_t s_rx_height_cm = 0;
+static int16_t s_rx_servo_deg = 0;
+static bool s_got_first_frame = false;
 static adc_oneshot_unit_handle_t s_adc_handle = NULL;
 
-static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
+static void can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
     (void)timestamp;
     if (buffer == NULL) {
-        return false;
+        return;
     }
     if (!s_got_first_frame) {
         s_got_first_frame = true;
+    }
+    if (xSemaphoreTake(s_can_data_mutex, portMAX_DELAY) != pdTRUE) {
+        return;
     }
     if (header_id == CAN_ID_ATTITUDE) {
         int16_t pitch, roll;
@@ -68,7 +72,7 @@ static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t time
         memcpy(&servo_deg, &buffer[0], sizeof(servo_deg));
         s_rx_servo_deg = servo_deg;
     }
-    return false;
+    xSemaphoreGive(s_can_data_mutex);
 }
 
 static void dashboard_timer_cb(lv_timer_t *timer)
@@ -87,10 +91,13 @@ static void dashboard_timer_cb(lv_timer_t *timer)
 
     dashboard_data_t data;
     dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
-    data.pitch_deg = s_rx_pitch;
-    data.roll_deg = s_rx_roll;
-    data.height_cm = s_rx_height_cm;
-    data.rudder_deg = s_rx_servo_deg;
+    if (xSemaphoreTake(s_can_data_mutex, portMAX_DELAY) == pdTRUE) {
+        data.pitch_deg = s_rx_pitch;
+        data.roll_deg = s_rx_roll;
+        data.height_cm = s_rx_height_cm;
+        data.rudder_deg = s_rx_servo_deg;
+        xSemaphoreGive(s_can_data_mutex);
+    }
     dashboard_ui_set_data(runtime->ui, &data);
 }
 
@@ -190,6 +197,13 @@ void app_main(void)
     dashboard_data_t data;
     dashboard_demo_fill(&data, 0);
     dashboard_ui_set_data(s_runtime.ui, &data);
+
+    s_can_data_mutex = xSemaphoreCreateMutex();
+    if (s_can_data_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create CAN data mutex");
+        bsp_display_unlock();
+        return;
+    }
 
     (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
     bsp_display_unlock();

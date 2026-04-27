@@ -26,6 +26,7 @@ static SemaphoreHandle_t s_mutex;
 static float s_pitch = 0.0f;
 static float s_roll = 0.0f;
 static bool s_initialized = false;
+static bool s_init_failed = false;
 
 /* Zero-reference quaternion (float, normalized) */
 static float s_qz[4] = {1.0f, 0.0f, 0.0f, 0.0f};
@@ -88,7 +89,13 @@ static void imu_task(void *pvParameters) {
         .glitch_ignore_cnt = 7,
         .flags = {.enable_internal_pullup = true}};
     i2c_master_bus_handle_t bus_handle;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus_handle));
+    esp_err_t i2c_ret = i2c_new_master_bus(&bus_config, &bus_handle);
+    if (i2c_ret != ESP_OK) {
+        ESP_LOGE(TAG, "i2c_new_master_bus failed: %s", esp_err_to_name(i2c_ret));
+        s_init_failed = true;
+        vTaskDelete(NULL);
+        return;
+    }
 
     esp32_i2c_init(bus_handle, MPU9250_ADDR);
 
@@ -97,21 +104,25 @@ static void imu_task(void *pvParameters) {
     memset(&int_param, 0, sizeof(int_param));
     if (mpu_init(&int_param) != 0) {
         ESP_LOGE(TAG, "mpu_init failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     if (mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL) != 0) {
         ESP_LOGE(TAG, "mpu_set_sensors failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     if (mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL) != 0) {
         ESP_LOGE(TAG, "mpu_configure_fifo failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     if (mpu_set_sample_rate(200) != 0) {
         ESP_LOGE(TAG, "mpu_set_sample_rate failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
@@ -143,22 +154,26 @@ static void imu_task(void *pvParameters) {
 
     if (dmp_load_motion_driver_firmware() != 0) {
         ESP_LOGE(TAG, "dmp_load_motion_driver_firmware failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     if (dmp_set_fifo_rate(200) != 0) {
         ESP_LOGE(TAG, "dmp_set_fifo_rate failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     unsigned short dmp_features = DMP_FEATURE_6X_LP_QUAT | DMP_FEATURE_GYRO_CAL;
     if (dmp_enable_feature(dmp_features) != 0) {
         ESP_LOGE(TAG, "dmp_enable_feature failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
     if (mpu_set_dmp_state(1) != 0) {
         ESP_LOGE(TAG, "mpu_set_dmp_state failed");
+        s_init_failed = true;
         vTaskDelete(NULL);
     }
 
@@ -242,9 +257,20 @@ esp_err_t imu_init(void) {
 
     xTaskCreate(imu_task, "imu_task", 8192, NULL, 1, NULL);
 
-    /* Wait until the IMU task signals it is ready */
-    while (!s_initialized) {
+    /* Wait until the IMU task signals it is ready or fails */
+    const int max_wait = 300; /* 30 seconds timeout */
+    int waited = 0;
+    while (!s_initialized && !s_init_failed && waited < max_wait) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
+        waited++;
+    }
+    if (s_init_failed) {
+        ESP_LOGE(TAG, "IMU task failed to initialise");
+        return ESP_FAIL;
+    }
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "IMU initialisation timed out");
+        return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;
 }

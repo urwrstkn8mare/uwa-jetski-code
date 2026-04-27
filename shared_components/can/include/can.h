@@ -9,10 +9,8 @@
  * Callback invoked when a CAN frame is received.
  *
  * Called from the CAN RX worker task context (never from ISR context).
- *
- * Return value is reserved for API compatibility and currently ignored.
  */
-typedef bool (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp);
+typedef void (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp);
 
 /**
  * @brief Initialise CAN (TWAI)
@@ -41,3 +39,12 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len);
  * @param[out] failures: Total transmission failures
  */
 void can_get_tx_stats(uint32_t *attempts, uint32_t *failures);
+
+/**
+ * @brief Deinitialise CAN (TWAI)
+ *
+ * Stops the TWAI node, deletes worker tasks and frees queues.
+ *
+ * @return ESP_OK on success, ESP_ERR_INVALID_STATE if not initialised.
+ */
+esp_err_t can_deinit(void);

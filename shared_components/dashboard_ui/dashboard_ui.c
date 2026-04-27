@@ -1,15 +1,8 @@
 #include "dashboard_ui.h"
 
-#include "core/lv_obj.h"
-#include "display/lv_display.h"
-#include "draw/lv_draw_buf.h"
+#include "lvgl.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "misc/lv_math.h"
-#include "widgets/bar/lv_bar.h"
-#include "widgets/canvas/lv_canvas.h"
-#include "widgets/label/lv_label.h"
-#include "widgets/line/lv_line.h"
 
 #include <stdint.h>
 #include <stdio.h>

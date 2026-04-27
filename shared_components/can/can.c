@@ -56,10 +56,13 @@ static uint32_t s_tx_failures = 0;
 
 /* ---------- ISR callbacks (must be in IRAM) ---------- */
 static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
-                                     const twai_tx_done_event_data_t *edata,
-                                     void *user_ctx) {
+                                      const twai_tx_done_event_data_t *edata,
+                                      void *user_ctx) {
   (void)handle;
   (void)user_ctx;
+  if (s_free_frame_queue == NULL) {
+    return false;
+  }
   const twai_frame_t *done_frame = edata->done_tx_frame;
   can_frame_buf_t *fb = (can_frame_buf_t *)done_frame; /* frame is first member */
   BaseType_t yield = pdFALSE;
@@ -68,10 +71,13 @@ static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
 }
 
 static IRAM_ATTR bool can_rx_done_cb(twai_node_handle_t handle,
-                                     const twai_rx_done_event_data_t *edata,
-                                     void *user_ctx) {
+                                      const twai_rx_done_event_data_t *edata,
+                                      void *user_ctx) {
   (void)edata;
   (void)user_ctx;
+  if (s_rx_queue == NULL) {
+    return false;
+  }
   uint8_t buf[8];
   twai_frame_t rx_frame = {
       .buffer = buf,
@@ -259,7 +265,7 @@ cleanup:
 }
 
 bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
-  if (s_node_hdl == NULL) {
+  if (s_node_hdl == NULL || s_tx_req_queue == NULL) {
     ESP_LOGE(TAG, "CAN not initialised");
     return false;
   }
@@ -299,4 +305,42 @@ void can_get_tx_stats(uint32_t *attempts, uint32_t *failures) {
   if (failures != NULL) {
     *failures = s_tx_failures;
   }
+}
+
+esp_err_t can_deinit(void) {
+  if (s_node_hdl == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  if (s_tx_task_hdl != NULL) {
+    vTaskDelete(s_tx_task_hdl);
+    s_tx_task_hdl = NULL;
+  }
+  if (s_rx_task_hdl != NULL) {
+    vTaskDelete(s_rx_task_hdl);
+    s_rx_task_hdl = NULL;
+  }
+
+  twai_node_disable(s_node_hdl);
+  twai_node_delete(s_node_hdl);
+  s_node_hdl = NULL;
+
+  if (s_tx_req_queue != NULL) {
+    vQueueDelete(s_tx_req_queue);
+    s_tx_req_queue = NULL;
+  }
+  if (s_rx_queue != NULL) {
+    vQueueDelete(s_rx_queue);
+    s_rx_queue = NULL;
+  }
+  if (s_free_frame_queue != NULL) {
+    vQueueDelete(s_free_frame_queue);
+    s_free_frame_queue = NULL;
+  }
+
+  s_given_can_rx_cb = NULL;
+  s_tx_attempts = 0;
+  s_tx_failures = 0;
+  ESP_LOGI(TAG, "CAN deinitialised");
+  return ESP_OK;
 }

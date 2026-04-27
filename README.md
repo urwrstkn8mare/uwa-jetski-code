@@ -18,7 +18,7 @@ with a specifc purpose. Can simply look at the project's README to learn more.
 
 - `scripts`: Contains utility scripts for development. Run these directly or via the aliases provided by `activate_scripts.sh`:
   - `build.sh`: Wrapper for `idf.py build`. Accepts same arguments as `idf.py build`.
-  - `clean.py`: Removes build artifacts. Accepts optional `-p/--project` argument to specify project path (defaults to current directory).
+  - `clean.py`: Removes build artifacts. Must be run from the project root directory.
   - `flash.sh`: Wrapper for `idf.py flash` but uses serial port defined in `.serial_port`
   - `monitor.py`: PTY wrapper for `idf.py monitor` but uses serial port defined in `.serial_port`.
   - `choose_port.py`: Interactive serial port selector that saves choice to `.serial_port` of project (also can be non-interactive).

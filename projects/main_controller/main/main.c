@@ -15,22 +15,25 @@ static const char *TAG = "main";
 #define SERVO_LEDC_CHANNEL LEDC_CHANNEL_0
 #define SERVO_LEDC_TIMER LEDC_TIMER_0
 
-static volatile uint16_t s_potentiometer_value = 0;
+static SemaphoreHandle_t s_pot_mutex;
+static uint16_t s_potentiometer_value = 0;
 static uint32_t s_loop_count = 0;
 
-static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
+static void can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
 {
     (void)timestamp;
     if (buffer == NULL) {
-        return false;
+        return;
     }
     if (header_id == CAN_ID_POTENTIOMETER) {
         uint16_t pot_val;
         memcpy(&pot_val, &buffer[0], sizeof(pot_val));
-        s_potentiometer_value = pot_val;
+        if (xSemaphoreTake(s_pot_mutex, portMAX_DELAY) == pdTRUE) {
+            s_potentiometer_value = pot_val;
+            xSemaphoreGive(s_pot_mutex);
+        }
         ESP_LOGI(TAG, "Potentiometer: %u", pot_val);
     }
-    return false;
 }
 
 static void control_task(void *arg)
@@ -56,7 +59,11 @@ static void control_task(void *arg)
         }
 
         // Update servo based on potentiometer (0-100 -> 1000-2000 µs)
-        uint16_t pot_val = s_potentiometer_value;
+        uint16_t pot_val = 0;
+        if (xSemaphoreTake(s_pot_mutex, portMAX_DELAY) == pdTRUE) {
+            pot_val = s_potentiometer_value;
+            xSemaphoreGive(s_pot_mutex);
+        }
         if (pot_val > 100) pot_val = 100;
         uint32_t pulse_us = 1000 + (pot_val * 10);  // 1000-2000 µs
         uint32_t duty = (pulse_us * 8192) / 20000;  // Convert to duty cycle (13-bit = 8192 max)
@@ -85,11 +92,44 @@ static void control_task(void *arg)
     }
 }
 
+static esp_err_t init_with_retry(const char *name, esp_err_t (*init_fn)(void), int retries)
+{
+    esp_err_t ret = ESP_FAIL;
+    for (int i = 0; i < retries; i++) {
+        ret = init_fn();
+        if (ret == ESP_OK) {
+            return ESP_OK;
+        }
+        ESP_LOGW(TAG, "%s init failed (attempt %d/%d): %s", name, i + 1, retries, esp_err_to_name(ret));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    ESP_LOGE(TAG, "%s init failed after %d attempts", name, retries);
+    return ret;
+}
+
+static esp_err_t can_init_wrapper(void)
+{
+    return can_init(can_rx_cb);
+}
+
 void app_main(void)
 {
-    ESP_ERROR_CHECK(imu_init());
-    ESP_ERROR_CHECK(height_init());
-    ESP_ERROR_CHECK(can_init(can_rx_cb));
+    s_pot_mutex = xSemaphoreCreateMutex();
+    if (s_pot_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create potentiometer mutex");
+        return;
+    }
+
+    if (init_with_retry("IMU", imu_init, 3) != ESP_OK) {
+        ESP_LOGW(TAG, "Continuing without IMU");
+    }
+    if (init_with_retry("Height", height_init, 3) != ESP_OK) {
+        ESP_LOGW(TAG, "Continuing without height sensor");
+    }
+    if (init_with_retry("CAN", can_init_wrapper, 3) != ESP_OK) {
+        ESP_LOGE(TAG, "CAN init failed, cannot continue");
+        return;
+    }
     ESP_LOGI(TAG, "IMU, height sensor and CAN ready");
 
     // Initialize LEDC for servo control
@@ -100,7 +140,11 @@ void app_main(void)
         .freq_hz = 50,  // 50 Hz for servo (20 ms period)
         .clk_cfg = LEDC_AUTO_CLK,
     };
-    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+    esp_err_t ret = ledc_timer_config(&ledc_timer);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ledc_timer_config failed: %s", esp_err_to_name(ret));
+        return;
+    }
 
     ledc_channel_config_t ledc_channel = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
@@ -111,7 +155,11 @@ void app_main(void)
         .duty = 0,
         .hpoint = 0,
     };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+    ret = ledc_channel_config(&ledc_channel);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "ledc_channel_config failed: %s", esp_err_to_name(ret));
+        return;
+    }
     ESP_LOGI(TAG, "Servo PWM initialized on GPIO %d", SERVO_GPIO);
 
     xTaskCreate(control_task, "control", 4096, NULL, 6, NULL);
