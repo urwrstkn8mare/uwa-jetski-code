@@ -13,6 +13,7 @@ static const char *TAG = "main";
 #define CAN_ID_ATTITUDE    0x100
 #define CAN_ID_HEIGHT      0x101
 #define CAN_ID_POTENTIOMETER 0x102
+#define CAN_ID_SERVO_POS   0x103
 
 #define SERVO_GPIO GPIO_NUM_1
 #define SERVO_LEDC_CHANNEL LEDC_CHANNEL_0
@@ -87,15 +88,22 @@ void app_main(void) {
         }
 
         // Update servo based on potentiometer (0-100 -> 1000-2000 µs)
-        // At 50 Hz with 13-bit resolution: period = 2^13 / 50 = 163.84
-        // 1000 µs = 163.84 * (1000 / 20000) = 8.192
-        // 2000 µs = 163.84 * (2000 / 20000) = 16.384
-        uint16_t pot_val = s_potentiometer_value;
-        if (pot_val > 100) pot_val = 100;
-        uint32_t pulse_us = 1000 + (pot_val * 10);  // 1000-2000 µs
-        uint32_t duty = (pulse_us * 8192) / 20000;  // Convert to duty cycle (13-bit = 8192 max)
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL, duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL);
+         // At 50 Hz with 13-bit resolution: period = 2^13 / 50 = 163.84
+         // 1000 µs = 163.84 * (1000 / 20000) = 8.192
+         // 2000 µs = 163.84 * (2000 / 20000) = 16.384
+         uint16_t pot_val = s_potentiometer_value;
+         if (pot_val > 100) pot_val = 100;
+         uint32_t pulse_us = 1000 + (pot_val * 10);  // 1000-2000 µs
+         uint32_t duty = (pulse_us * 8192) / 20000;  // Convert to duty cycle (13-bit = 8192 max)
+         ledc_set_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL, duty);
+         ledc_update_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL);
+ 
+         // Transmit servo position (-20..20 degrees)
+         // 1000 µs = -20 deg, 1500 µs = 0 deg, 2000 µs = +20 deg
+         int16_t servo_deg = (int16_t)(((int32_t)pulse_us - 1500) / 25);
+         uint8_t servo_data[2];
+         memcpy(&servo_data[0], &servo_deg, sizeof(servo_deg));
+         can_tx(CAN_ID_SERVO_POS, servo_data, sizeof(servo_data));
 
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }

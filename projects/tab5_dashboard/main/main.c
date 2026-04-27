@@ -14,6 +14,7 @@ static const char *TAG = "main";
 #define CAN_ID_ATTITUDE    0x100
 #define CAN_ID_HEIGHT      0x101
 #define CAN_ID_POTENTIOMETER 0x102
+#define CAN_ID_SERVO_POS   0x103
 
 
 
@@ -45,6 +46,7 @@ static dashboard_runtime_t s_runtime;
 static volatile int16_t s_rx_pitch = 0;
 static volatile int16_t s_rx_roll = 0;
 static volatile int16_t s_rx_height_cm = 0;
+static volatile int16_t s_rx_servo_deg = 0;
 static volatile bool s_got_first_frame = false;
 static adc_oneshot_unit_handle_t s_adc_handle = NULL;
 
@@ -67,6 +69,10 @@ static bool can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t time
         uint16_t height_u;
         memcpy(&height_u, &buffer[0], sizeof(height_u));
         s_rx_height_cm = (int16_t)height_u;
+    } else if (header_id == CAN_ID_SERVO_POS) {
+        int16_t servo_deg;
+        memcpy(&servo_deg, &buffer[0], sizeof(servo_deg));
+        s_rx_servo_deg = servo_deg;
     }
     return false;
 }
@@ -90,6 +96,7 @@ static void dashboard_timer_cb(lv_timer_t *timer)
     data.pitch_deg = s_rx_pitch;
     data.roll_deg = s_rx_roll;
     data.height_cm = s_rx_height_cm;
+    data.rudder_deg = s_rx_servo_deg;
     dashboard_ui_set_data(runtime->ui, &data);
 
     if (s_adc_handle != NULL && s_got_first_frame) {
