@@ -5,7 +5,13 @@ import argparse
 from pathlib import Path
 import shutil
 
-DEFAULT_DELETE = ["build", "build.clang", "managed_components", ".cache"]
+DEFAULT_DELETE = [
+    "build",
+    "build.clang",
+    "managed_components",
+    ".cache",
+    ".serial_port",
+]
 FORCE_DELETE = ["sdkconfig", "sdkconfig.old"]
 
 
@@ -21,9 +27,7 @@ def main():
         help="Whether to delete additional files which *could* result in data loss.",
         action="store_true",
     )
-    parser.add_argument(
-        "-d", "--dry-run",  default=False, action="store_true"
-    )
+    parser.add_argument("-d", "--dry-run", default=False, action="store_true")
     args = parser.parse_args()
 
     def process(path: Path):
