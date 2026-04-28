@@ -33,9 +33,8 @@ typedef struct dashboard_ui dashboard_ui_t;
 
 typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *user_data);
 
-void dashboard_ui_set_font_callback(font_get_cb_t cb, void *user_data);
-
-dashboard_ui_t *dashboard_ui_create(lv_obj_t *screen);
+dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
+                                  void *font_get_user_data);
 void dashboard_ui_destroy(dashboard_ui_t *ui);
 void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data);
 

@@ -14,9 +14,6 @@ LV_FONT_DECLARE(lv_font_montserrat_48);
 
 static const char *TAG = "dashboard_ui";
 
-static font_get_cb_t s_font_get_cb;
-static void *s_font_get_user_data;
-
 static const lv_font_t *speed_font = &lv_font_montserrat_48;
 static const lv_font_t *height_value_font = &lv_font_montserrat_48;
 static const lv_font_t *control_font = &lv_font_montserrat_18;
@@ -153,15 +150,12 @@ static int32_t get_baseline_offset(const lv_font_t *base_font,
          (label_font->line_height - label_font->base_line);
 }
 
-void dashboard_ui_set_font_callback(font_get_cb_t cb, void *user_data) {
-  s_font_get_cb = cb;
-  s_font_get_user_data = user_data;
-}
-
 static const lv_font_t *load_font_variant(uint16_t size_px, int weight,
-                                     const lv_font_t *fallback) {
-  if (s_font_get_cb) {
-    const lv_font_t *font = s_font_get_cb(size_px, weight, s_font_get_user_data);
+                                          font_get_cb_t font_get_cb,
+                                          void *font_get_user_data,
+                                          const lv_font_t *fallback) {
+  if (font_get_cb != NULL) {
+    const lv_font_t *font = font_get_cb(size_px, weight, font_get_user_data);
     if (font != NULL) {
       return font;
     }
@@ -169,14 +163,23 @@ static const lv_font_t *load_font_variant(uint16_t size_px, int weight,
   return fallback;
 }
 
-static void init_dashboard_fonts(void) {
-  speed_font = load_font_variant(128, 1, &lv_font_montserrat_48);
-  height_value_font = load_font_variant(56, 1, &lv_font_montserrat_48);
-  control_font = load_font_variant(18, 1, &lv_font_montserrat_18);
-  percent_font = load_font_variant(32, 1, &lv_font_montserrat_18);
-  elevon_font = load_font_variant(16, 1, &lv_font_montserrat_18);
-  small_font = &lv_font_montserrat_14;
-  title_font = load_font_variant(14, 1, &lv_font_montserrat_14);
+static void init_dashboard_fonts(font_get_cb_t font_get_cb,
+                                 void *font_get_user_data) {
+  speed_font = load_font_variant(128, 700, font_get_cb, font_get_user_data,
+                                 &lv_font_montserrat_48);
+  height_value_font = load_font_variant(56, 700, font_get_cb,
+                                        font_get_user_data,
+                                        &lv_font_montserrat_48);
+  control_font = load_font_variant(18, 700, font_get_cb, font_get_user_data,
+                                   &lv_font_montserrat_18);
+  percent_font = load_font_variant(32, 700, font_get_cb, font_get_user_data,
+                                   &lv_font_montserrat_18);
+  elevon_font = load_font_variant(16, 700, font_get_cb, font_get_user_data,
+                                  &lv_font_montserrat_18);
+  small_font = load_font_variant(14, 700, font_get_cb, font_get_user_data,
+                                 &lv_font_montserrat_14);
+  title_font = load_font_variant(14, 700, font_get_cb, font_get_user_data,
+                                 &lv_font_montserrat_14);
 }
 
 static void configure_screen(lv_obj_t *screen) {
@@ -1000,7 +1003,8 @@ static void control_surface_card_set_val(control_surface_card_t *card,
   }
 }
 
-dashboard_ui_t *dashboard_ui_create(lv_obj_t *screen) {
+dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
+                                  void *font_get_user_data) {
   if (screen == NULL) {
     return NULL;
   }
@@ -1011,7 +1015,7 @@ dashboard_ui_t *dashboard_ui_create(lv_obj_t *screen) {
 
   ESP_LOGI(TAG, "Display resolution: %dx%d", (int)h_res, (int)v_res);
 
-  init_dashboard_fonts();
+  init_dashboard_fonts(font_get_cb, font_get_user_data);
   configure_screen(screen);
 
   dashboard_ui_t *ui = calloc(1, sizeof(*ui));

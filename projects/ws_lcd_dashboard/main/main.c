@@ -20,7 +20,7 @@ static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *u
   (void)user_data;
   const lv_font_t *font = NULL;
   esp_err_t err = ws_display_font_get(size_px,
-      (weight == WS_DISPLAY_FONT_WEIGHT_SEMIBOLD)
+      (weight >= 600)
       ? WS_DISPLAY_FONT_WEIGHT_SEMIBOLD : WS_DISPLAY_FONT_WEIGHT_REGULAR,
       &font);
   return (err == ESP_OK) ? font : NULL;
@@ -42,10 +42,8 @@ void app_main(void) {
   ESP_ERROR_CHECK(ws_display_init());
   ESP_ERROR_CHECK(ws_display_lock(-1));
 
-  dashboard_ui_set_font_callback(ws_lcd_font_get_cb, NULL);
-
   lv_obj_t *screen = lv_screen_active();
-  s_runtime.ui = dashboard_ui_create(screen);
+  s_runtime.ui = dashboard_ui_init(screen, ws_lcd_font_get_cb, NULL);
   if (s_runtime.ui == NULL) {
     ESP_LOGE(TAG, "Failed to create dashboard UI");
     ws_display_unlock();

@@ -25,7 +25,7 @@ static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *use
 {
     (void)user_data;
     const lv_font_t *font = NULL;
-    if (dashboard_font_get(size_px, (dashboard_font_weight_t)weight, &font) == ESP_OK) {
+    if (dashboard_font_get(size_px, weight, &font) == ESP_OK) {
         return font;
     }
     return NULL;
@@ -182,10 +182,8 @@ void app_main(void)
         return;
     }
 
-    dashboard_ui_set_font_callback(tab5_font_get_cb, NULL);
-
     lv_obj_t *screen = lv_screen_active();
-    s_runtime.ui = dashboard_ui_create(screen);
+    s_runtime.ui = dashboard_ui_init(screen, tab5_font_get_cb, NULL);
     if (s_runtime.ui == NULL) {
         ESP_LOGE(TAG, "Failed to create dashboard UI");
         bsp_display_unlock();
