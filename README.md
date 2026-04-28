@@ -2,6 +2,10 @@
 
 This is the code for both the new and old hydrfoil jetski at UWA.
 
+## TODO
+
+- [ ] Upgrade all the v5 ESP-IDF projects to v6.
+
 ## Directories explained
 
 - `esp-bsp`: A git submodule of `esp-bsp`'s `bsp/update_tab5` branch. Needed
