@@ -117,6 +117,8 @@ struct dashboard_ui {
   control_surface_card_t elevon_right;
   int32_t h_res;
   int32_t v_res;
+  bool has_last_data;
+  dashboard_data_t last_data;
 };
 
 static const int32_t s_attitude_ticks[ATTITUDE_TICK_COUNT] = {30, 20, 10, -10,
@@ -165,16 +167,16 @@ static const lv_font_t *load_font_variant(uint16_t size_px, int weight,
 
 static void init_dashboard_fonts(font_get_cb_t font_get_cb,
                                  void *font_get_user_data) {
-  speed_font = load_font_variant(128, 700, font_get_cb, font_get_user_data,
+  speed_font = load_font_variant(96, 700, font_get_cb, font_get_user_data,
                                  &lv_font_montserrat_48);
   height_value_font = load_font_variant(56, 700, font_get_cb,
                                         font_get_user_data,
                                         &lv_font_montserrat_48);
   control_font = load_font_variant(18, 700, font_get_cb, font_get_user_data,
                                    &lv_font_montserrat_18);
-  percent_font = load_font_variant(32, 700, font_get_cb, font_get_user_data,
+  percent_font = load_font_variant(24, 700, font_get_cb, font_get_user_data,
                                    &lv_font_montserrat_18);
-  elevon_font = load_font_variant(16, 700, font_get_cb, font_get_user_data,
+  elevon_font = load_font_variant(14, 700, font_get_cb, font_get_user_data,
                                   &lv_font_montserrat_18);
   small_font = load_font_variant(14, 700, font_get_cb, font_get_user_data,
                                  &lv_font_montserrat_14);
@@ -776,7 +778,6 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
 
   const int32_t canvas_w = card->card_w - 2;
   const int32_t canvas_h = card->card_h - 2;
-
   for (uint32_t i = 0; i < ATTITUDE_TICK_COUNT; i++) {
     lv_obj_t *mark = card->pitch_marks[i];
     if (mark == NULL) {
@@ -985,7 +986,6 @@ static control_surface_card_t create_control_surface_card(
                                       lv_color_white(), LV_OPA_COVER);
   lv_obj_add_flag(card.value_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.value_label, LV_ALIGN_BOTTOM_MID, 0, -8);
-
   return card;
 }
 
@@ -1024,22 +1024,27 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
     return NULL;
   }
 
-  ui->h_res = h_res;
-  ui->v_res = v_res;
+  int32_t ui_h_res = h_res;
+  int32_t ui_v_res = v_res;
 
-  ui->root = create_dashboard_root(screen, h_res, v_res);
+  ui->h_res = ui_h_res;
+  ui->v_res = ui_v_res;
+
+  ui->root = create_dashboard_root(screen, ui_h_res, ui_v_res);
   if (ui->root == NULL) {
     ESP_LOGE(TAG, "Failed to create dashboard root container");
     free(ui);
     return NULL;
   }
 
+  lv_obj_set_pos(ui->root, 0, 0);
+
   /* Compute exact card widths so each row fills the display width.
      With pad_column=-1, adjacent cards overlap by 1 px, so the total
      physical width needed is h_res + (n - 1) for n cards.
      Row 2 widths are derived from row 1 so vertical borders align. */
   int32_t row1_w[3];
-  int32_t row1_total = h_res + 2;
+  int32_t row1_total = ui_h_res + 2;
   int32_t row1_base = row1_total / 3;
   int32_t row1_rem = row1_total % 3;
   for (int i = 0; i < 3; i++) {
@@ -1143,16 +1148,51 @@ void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
     return;
   }
 
-  dashboard_ui_set_speed(ui, data->speed_kmh);
-  dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
-  dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
-  dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
-                           data->battery_current_a, data->battery_temp_c);
-  for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
-    dashboard_ui_set_motor(ui, i, data->motor_percent[i],
-                           data->motor_power_kw_x10[i], data->motor_rpm[i],
-                           data->motor_temp_c[i]);
+  if (!ui->has_last_data || ui->last_data.speed_kmh != data->speed_kmh) {
+    dashboard_ui_set_speed(ui, data->speed_kmh);
   }
-  dashboard_ui_set_rudder(ui, data->rudder_deg);
-  dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
+  if (!ui->has_last_data || ui->last_data.height_cm != data->height_cm ||
+      ui->last_data.height_target_cm != data->height_target_cm) {
+    dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
+  }
+  if (!ui->has_last_data || ui->last_data.roll_deg != data->roll_deg ||
+      ui->last_data.pitch_deg != data->pitch_deg ||
+      ui->last_data.heading_deg != data->heading_deg) {
+    dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
+  }
+  if (!ui->has_last_data || ui->last_data.battery_percent != data->battery_percent ||
+      ui->last_data.battery_voltage_v != data->battery_voltage_v ||
+      ui->last_data.battery_current_a != data->battery_current_a ||
+      ui->last_data.battery_temp_c != data->battery_temp_c) {
+    dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
+                             data->battery_current_a, data->battery_temp_c);
+  }
+  if (!ui->has_last_data || ui->last_data.motor_count != data->motor_count) {
+    for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
+      dashboard_ui_set_motor(ui, i, data->motor_percent[i],
+                             data->motor_power_kw_x10[i], data->motor_rpm[i],
+                             data->motor_temp_c[i]);
+    }
+  } else {
+    for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
+      if (ui->last_data.motor_percent[i] != data->motor_percent[i] ||
+          ui->last_data.motor_power_kw_x10[i] != data->motor_power_kw_x10[i] ||
+          ui->last_data.motor_rpm[i] != data->motor_rpm[i] ||
+          ui->last_data.motor_temp_c[i] != data->motor_temp_c[i]) {
+        dashboard_ui_set_motor(ui, i, data->motor_percent[i],
+                               data->motor_power_kw_x10[i], data->motor_rpm[i],
+                               data->motor_temp_c[i]);
+      }
+    }
+  }
+  if (!ui->has_last_data || ui->last_data.rudder_deg != data->rudder_deg) {
+    dashboard_ui_set_rudder(ui, data->rudder_deg);
+  }
+  if (!ui->has_last_data || ui->last_data.elevon_left_deg != data->elevon_left_deg ||
+      ui->last_data.elevon_right_deg != data->elevon_right_deg) {
+    dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
+  }
+
+  ui->last_data = *data;
+  ui->has_last_data = true;
 }

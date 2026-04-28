@@ -11,6 +11,9 @@ static const char *TAG = "main";
 typedef struct {
   dashboard_ui_t *ui;
   uint32_t start_ms;
+  uint32_t fps_window_start_ms;
+  uint32_t fps_frame_count;
+  uint32_t fps_slowest_frame_ms;
 } dashboard_runtime_t;
 
 static dashboard_runtime_t s_runtime;
@@ -33,9 +36,27 @@ static void dashboard_timer_cb(lv_timer_t *timer) {
     return;
   }
 
+  const uint32_t frame_start_ms = lv_tick_get();
   dashboard_data_t data;
   dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
   dashboard_ui_set_data(runtime->ui, &data);
+
+  const uint32_t frame_time_ms = lv_tick_elaps(frame_start_ms);
+  if (frame_time_ms > runtime->fps_slowest_frame_ms) {
+    runtime->fps_slowest_frame_ms = frame_time_ms;
+  }
+  runtime->fps_frame_count++;
+
+  const uint32_t window_elapsed_ms = lv_tick_elaps(runtime->fps_window_start_ms);
+  if (window_elapsed_ms >= 1000) {
+    const uint32_t fps = (runtime->fps_frame_count * 1000U) / window_elapsed_ms;
+    ESP_LOGI(TAG, "UI FPS=%lu (target>=10), slowest_frame=%lums, window=%lums",
+             (unsigned long)fps, (unsigned long)runtime->fps_slowest_frame_ms,
+             (unsigned long)window_elapsed_ms);
+    runtime->fps_window_start_ms = lv_tick_get();
+    runtime->fps_frame_count = 0;
+    runtime->fps_slowest_frame_ms = 0;
+  }
 }
 
 void app_main(void) {
@@ -51,12 +72,20 @@ void app_main(void) {
   }
 
   s_runtime.start_ms = lv_tick_get();
+  s_runtime.fps_window_start_ms = s_runtime.start_ms;
+  s_runtime.fps_frame_count = 0;
+  s_runtime.fps_slowest_frame_ms = 0;
 
   dashboard_data_t data;
   dashboard_demo_fill(&data, 0);
   dashboard_ui_set_data(s_runtime.ui, &data);
 
-  (void)lv_timer_create(dashboard_timer_cb, 100, &s_runtime);
+#if LV_USE_SYSMON && LV_USE_PERF_MONITOR
+  lv_sysmon_show_performance(lv_display_get_default());
+#endif
+
+  /* Run UI updates at 20 Hz to keep display refresh safely above 10 FPS. */
+  (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
 
   ws_display_unlock();
 }
