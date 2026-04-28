@@ -56,7 +56,7 @@ void app_main(void) {
   dashboard_demo_fill(&data, 0);
   dashboard_ui_set_data(s_runtime.ui, &data);
 
-  (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
+  (void)lv_timer_create(dashboard_timer_cb, 100, &s_runtime);
 
   ws_display_unlock();
 }
