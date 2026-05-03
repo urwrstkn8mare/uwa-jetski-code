@@ -10,4 +10,4 @@ cd projects/auxiliary_controller
 build
 ```
 
-Manifest: `main/idf_component.yml` pulls **tdisplays3** from the `esp-idf-t-display-s3` example repo. Pinout: `menuconfig` → *Auxiliary controller* menus and *CAN configuration* (shared `can` component).
+Manifest: `main/idf_component.yml` pulls **tdisplays3** from the `esp-idf-t-display-s3` example repo. Pinout: `menuconfig` → top-level *UWA Jetski — …* entries from the `gps`, `rudder_pot`, and symlinked `can` components.

@@ -1,3 +1,7 @@
+/*
+ * WS ring LCD dashboard: live CAN HUD (with optional demo blend) on the Espressif round display kit.
+ */
+
 #include "can.h"
 #include "can_ui_bridge.h"
 #include "dashboard_demo.h"
@@ -24,8 +28,8 @@ static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *u
   (void)user_data;
   const lv_font_t *font = NULL;
   esp_err_t err = ws_display_font_get(size_px,
-      (weight >= 600) ? WS_DISPLAY_FONT_WEIGHT_SEMIBOLD : WS_DISPLAY_FONT_WEIGHT_REGULAR,
-      &font);
+                                      (weight >= 600) ? WS_DISPLAY_FONT_WEIGHT_SEMIBOLD : WS_DISPLAY_FONT_WEIGHT_REGULAR,
+                                      &font);
   return (err == ESP_OK) ? font : NULL;
 }
 

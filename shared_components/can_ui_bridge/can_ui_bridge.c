@@ -24,6 +24,8 @@ static bool s_have_height;
 static bool s_have_servo;
 static bool s_have_gps_pos;
 static bool s_have_gps_vel;
+static bool s_have_pot;
+static uint16_t s_pot_pct;
 
 void can_ui_bridge_init(void) {
   s_mux = xSemaphoreCreateMutex();
@@ -69,6 +71,13 @@ void can_ui_bridge_on_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t t
     memcpy(&s_heading_cdeg, &buffer[2], sizeof(s_heading_cdeg));
     s_have_gps_vel = true;
     break;
+  case CAN_ID_POTENTIOMETER: {
+    uint16_t v;
+    memcpy(&v, buffer, sizeof(v));
+    s_pot_pct = (v > 100) ? 100 : v;
+    s_have_pot = true;
+    break;
+  }
   default:
     break;
   }
@@ -90,9 +99,13 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms) 
   if (s_have_height) {
     data->height_cm = s_height_cm;
   }
+  /* Rudder is the operator POT (CAN 0x102); not derived from actuator telemetry. */
+  if (s_have_pot) {
+    data->rudder_deg = ((int32_t)s_pot_pct * 40) / 100 - 20;
+  }
   if (s_have_servo) {
-    data->rudder_deg = s_servo_a_deg;
-    data->elevon_left_deg = s_servo_b_deg;
+    data->elevon_left_deg = s_servo_a_deg;
+    data->elevon_right_deg = s_servo_b_deg;
   }
   if (s_have_gps_vel) {
     data->speed_kmh = s_speed_kmh_x10 / 10;

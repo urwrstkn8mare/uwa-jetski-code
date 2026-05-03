@@ -6,7 +6,7 @@ ESP32-S3 board (LilyGO T-Display-S3) that:
 
 - Reads **pitch/roll** from an **ICM-20948** (I2C + DMP, Quat9 orientation) and sends `CAN_ID_ATTITUDE` (0x100).
 - Reads **ride height** from the **A02YYUW** ultrasonic module (UART) and sends `CAN_ID_HEIGHT` (0x101).
-- Drives **two 50 Hz PWM servos** (LEDC) from the **potentiometer** value received over CAN (`CAN_ID_POTENTIOMETER`, 0x102) and sends `CAN_ID_SERVO_POS` (0x103) with two `int16` degrees.
+- **Rudder position** is the **POT %** from the auxiliary controller on CAN (`CAN_ID_POTENTIOMETER`, 0x102). That demand drives **two mirrored 50 Hz LEDC outputs** and **`CAN_ID_SERVO_POS` (0x103)** carries echoed **surface** angles (e.g. elevons — not rudder; rudder on the HUD uses POT).
 - Receives **GPS** snapshots from the **auxiliary controller** (`CAN_ID_GPS_POSITION` 0x104, `CAN_ID_GPS_VELOCITY` 0x105) for the on-panel status text.
 - Shows a **debug LVGL** screen (local + CAN) on the built-in display (`tdisplays3` from the example repo; see `main/idf_component.yml`).
 
@@ -14,8 +14,8 @@ ESP32-S3 board (LilyGO T-Display-S3) that:
 
 - **CAN** — `CANTX`, `CANRX`, bitrate (`shared_components/can/Kconfig.projbuild`).
 - **Height (A02YYUW)** — UART port, RX, TX (`components/height/Kconfig.projbuild`).
-- **ICM-20948** — I2C port, SDA, SCL, 0x68 vs 0x69 (`main/Kconfig.projbuild`).
-- **Servos** — GPIO per channel, LEDC timer and channels (`main/Kconfig.projbuild`).
+- **ICM-20948** — I2C port, SDA, SCL, 0x68 vs 0x69 (`components/imu/Kconfig`).
+- **PWM outputs** — GPIO per channel, LEDC timer and channels (`components/servo_drive/Kconfig`; menu *UWA Jetski — Rudder PWM*).
 
 ## Components
 

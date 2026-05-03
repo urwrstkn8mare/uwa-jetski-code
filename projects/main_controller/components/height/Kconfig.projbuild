@@ -1,4 +1,4 @@
-menu "Height sensor (A02YYUW) configuration"
+menu "UWA Jetski — Height sensor (A02YYUW) configuration"
 
     config HEIGHT_UART_PORT
         int "UART port number for A02YYUW"

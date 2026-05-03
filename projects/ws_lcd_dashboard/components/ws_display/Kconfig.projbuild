@@ -1,4 +1,4 @@
-menu "Waveshare Display Configuration"
+menu "UWA Jetski — Waveshare display"
 
     menu "Display"
         config EXAMPLE_LCD_RGB_BOUNCE_BUFFER_HEIGHT
