@@ -17,6 +17,7 @@ static uint16_t s_last_pct;
 
 static void pot_tx_task(void *arg) {
   (void)arg;
+  uint32_t loop = 0;
   for (;;) {
     if (s_adc != NULL) {
       int raw = 0;
@@ -40,7 +41,11 @@ static void pot_tx_task(void *arg) {
           s_last_pct = pct;
           uint8_t b[2];
           memcpy(b, &pct, sizeof(pct));
-          can_tx(CAN_ID_POTENTIOMETER, b, sizeof(b));
+          bool ok = can_tx(CAN_ID_POTENTIOMETER, b, sizeof(b));
+          loop++;
+          if ((loop % 20u) == 0u) {
+            ESP_LOGI(TAG, "POT %u%% raw=%d CAN tx=%s", (unsigned)pct, raw, ok ? "ok" : "drop");
+          }
         }
       }
     }

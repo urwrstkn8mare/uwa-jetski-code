@@ -1,6 +1,9 @@
 dependencies:
   idf: '>=5.2'
   cybergear-robotics/icm20948: "^0.1.0"
+  espressif/esp_lvgl_port: "^2.6.2"
+  espressif/button: "^4.1.4"
+  lvgl/lvgl: "^9"
   tdisplays3:
+    git: https://github.com/hiruna/esp-idf-t-display-s3.git
     path: components/tdisplays3
-    git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git

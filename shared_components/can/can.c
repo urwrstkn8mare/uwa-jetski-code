@@ -2,11 +2,14 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "hal/twai_types.h"
 #include "esp_twai.h"
 #include "esp_twai_onchip.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include <inttypes.h>
 #include <string.h>
 
 static const char *TAG = "can";
@@ -53,6 +56,7 @@ static TaskHandle_t s_rx_task_hdl = NULL;
 /* Diagnostics */
 static uint32_t s_tx_attempts = 0;
 static uint32_t s_tx_failures = 0;
+static int64_t s_last_can_tx_hw_err_log_us;
 
 /* ---------- ISR callbacks (must be in IRAM) ---------- */
 static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
@@ -129,7 +133,13 @@ static void can_tx_task(void *arg) {
 
     esp_err_t ret = twai_node_transmit(s_node_hdl, &fb->frame, portMAX_DELAY);
     if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "CAN tx failed (ID 0x%x): %s", req.id, esp_err_to_name(ret));
+      s_tx_failures++;
+      int64_t now = esp_timer_get_time();
+      if (now - s_last_can_tx_hw_err_log_us > 5000000 || s_last_can_tx_hw_err_log_us == 0) {
+        ESP_LOGW(TAG, "CAN TX failing (often no transceiver/bus); last err %s ID 0x%" PRIx32,
+                 esp_err_to_name(ret), req.id);
+        s_last_can_tx_hw_err_log_us = now;
+      }
       xQueueSend(s_free_frame_queue, &fb, 0);
     }
   }
@@ -194,6 +204,20 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
   esp_err_t ret = twai_new_node_onchip(&node_config, &s_node_hdl);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "twai_new_node_onchip failed: %s", esp_err_to_name(ret));
+    goto cleanup;
+  }
+
+  twai_mask_filter_config_t accept_all_std = {
+      .id = 0,
+      .mask = 0,
+      .is_ext = 0,
+      .no_classic = 0,
+      .no_fd = 1,
+      .dual_filter = 0,
+  };
+  ret = twai_node_config_mask_filter(s_node_hdl, 0, &accept_all_std);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "twai_node_config_mask_filter failed: %s", esp_err_to_name(ret));
     goto cleanup;
   }
 
@@ -264,9 +288,56 @@ cleanup:
   return ret;
 }
 
+bool can_is_ready(void) { return s_node_hdl != NULL && s_tx_req_queue != NULL; }
+
+static void fmt_twai_state(twai_error_state_t state, char *dst, size_t dst_len) {
+  const char *s = "?";
+  switch (state) {
+  case TWAI_ERROR_ACTIVE:
+    s = "ACTIVE";
+    break;
+  case TWAI_ERROR_WARNING:
+    s = "WARN";
+    break;
+  case TWAI_ERROR_PASSIVE:
+    s = "PASSIVE";
+    break;
+  case TWAI_ERROR_BUS_OFF:
+    s = "BUS_OFF";
+    break;
+  default:
+    s = "UNKNOWN";
+    break;
+  }
+  strncpy(dst, s, dst_len - 1);
+  dst[dst_len - 1] = '\0';
+}
+
+void can_get_bus_health(can_bus_health_t *out) {
+  if (out == NULL) {
+    return;
+  }
+  memset(out, 0, sizeof(*out));
+  strncpy(out->state_label, "--", sizeof(out->state_label) - 1);
+  if (!can_is_ready()) {
+    strncpy(out->state_label, "DOWN", sizeof(out->state_label) - 1);
+    return;
+  }
+  out->controller_started = true;
+  twai_node_status_t st = {0};
+  twai_node_record_t rec = {0};
+  if (twai_node_get_info(s_node_hdl, &st, &rec) != ESP_OK) {
+    strncpy(out->state_label, "INFO?", sizeof(out->state_label) - 1);
+    return;
+  }
+  fmt_twai_state(st.state, out->state_label, sizeof(out->state_label));
+  out->tx_error_count = st.tx_error_count;
+  out->rx_error_count = st.rx_error_count;
+  out->bus_error_events = rec.bus_err_num;
+}
+
 bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
   if (s_node_hdl == NULL || s_tx_req_queue == NULL) {
-    ESP_LOGE(TAG, "CAN not initialised");
     return false;
   }
   if (len > 8) {

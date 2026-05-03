@@ -41,6 +41,16 @@ dependencies:
     source:
       type: idf
     version: 5.5.3
+  igrr/libnmea:
+    component_hash: d6e78e853e75882c17cd4f200d110b84824e728cefbb84152227f0f4f98d8a50
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.2.1
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -65,7 +75,8 @@ dependencies:
     version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
 direct_dependencies:
 - idf
+- igrr/libnmea
 - tdisplays3
-manifest_hash: c2b7adc781f1d38a1b879a37f41f2cff5d8962008784a50cbdf14deae9b93377
+manifest_hash: 417ff66fc1e81a2d7cde5210c2eb4732ffe9667d93b1c85aa10c6f5608d4942b
 target: esp32s3
 version: 2.0.0

@@ -1,7 +1,6 @@
 #include "can_ui_bridge.h"
 
 #include "can_ids.h"
-#include "dashboard_demo.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <string.h>
@@ -88,7 +87,14 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms) 
   if (data == NULL) {
     return;
   }
-  dashboard_demo_fill(data, demo_elapsed_ms);
+  (void)demo_elapsed_ms;
+  memset(data, 0, sizeof(*data));
+  data->height_target_cm = 25;
+  data->motor_count = 2;
+  data->battery_percent = 0;
+  data->battery_voltage_v = 0;
+  data->battery_current_a = 0;
+  data->battery_temp_c = 0;
   if (s_mux == NULL || xSemaphoreTake(s_mux, pdMS_TO_TICKS(50)) != pdTRUE) {
     return;
   }

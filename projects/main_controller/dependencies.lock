@@ -55,6 +55,14 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 2.7.2
+  hiruna/esp-idf-aw9364:
+    component_hash: 4564086e52d5a39b267243f32cf9318b3ff9ae43180634f533b5a970b8812e8c
+    dependencies: []
+    source:
+      git: https://github.com/hiruna/esp-idf-aw9364.git
+      path: .
+      type: git
+    version: 88960d249a5219e4e4a2f0715b9444954b005e93
   idf:
     source:
       type: idf
@@ -67,25 +75,24 @@ dependencies:
       type: service
     version: 9.5.0
   tdisplays3:
-    component_hash: 48908329a6c656edf9800e883bbac6daa51bd2fc79c3652e906a82e0a6a4e655
+    component_hash: 99caa0b406e1767709093223077ce8455ef0ffce438db11d10a02ce9fa1b3e75
     dependencies:
-    - name: espressif/esp_lvgl_port
-      version: ^2.6.2
-    - name: espressif/button
-      version: ^4.1.4
-    - name: lvgl/lvgl
-      public: true
-      version: ^9
+    - git: https://github.com/hiruna/esp-idf-aw9364.git
+      name: hiruna/esp-idf-aw9364
+      version: main
     source:
-      git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
+      git: https://github.com/hiruna/esp-idf-t-display-s3.git
       path: components/tdisplays3
       type: git
-    version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
+    version: c7f8af82d7aae88256c47e4000128bb2b91484ba
 direct_dependencies:
 - a02yyuw
 - cybergear-robotics/icm20948
+- espressif/button
+- espressif/esp_lvgl_port
 - idf
+- lvgl/lvgl
 - tdisplays3
-manifest_hash: b3df8c8ac9614b89a65be4d8e25eaab13afaa131e2ca1ac1c37f188948dfd1f9
+manifest_hash: c8586f71fb6097fbc297cb3695444d74f016691c32d5bb115a4ae5fd673d69f9
 target: esp32s3
 version: 2.0.0

@@ -22,6 +22,27 @@ typedef void (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_
  */
 esp_err_t can_init(can_rx_cb_t can_rx_cb);
 
+typedef struct can_bus_health {
+  /** False if @ref can_init never succeeded */
+  bool controller_started;
+  /** Short controller state ("ACTIVE","WARN","PASSIVE","BUS_OFF",…) */
+  char state_label[20];
+  uint16_t tx_error_count;
+  uint16_t rx_error_count;
+  /** Cumulative bus errors since enable (TWAI HAL record) */
+  uint32_t bus_error_events;
+} can_bus_health_t;
+
+/**
+ * @brief Fill TWAI health (error state + counters).
+ *
+ * Solo node without acks tends toward high TX error counts and BUS_OFF/WARN.
+ */
+void can_get_bus_health(can_bus_health_t *out);
+
+/** @return true when the TWAI node is created and the TX worker is running — not “another ECU present”. */
+bool can_is_ready(void);
+
 /**
  * @brief Transmit a CAN frame
  *

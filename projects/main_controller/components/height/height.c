@@ -4,18 +4,27 @@
 #include "driver/uart.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "height";
 
+/** Probe time to decide “sensor unplugged”: UART opens even with no ultrasonic. */
+#ifndef CONFIG_HEIGHT_PROBE_TIMEOUT_MS
+#define CONFIG_HEIGHT_PROBE_TIMEOUT_MS 2000
+#endif
+
 static SemaphoreHandle_t s_mutex;
 static int32_t s_height_cm = 0;
 static bool s_initialized = false;
 static bool s_init_failed = false;
+static volatile bool s_height_task_alive;
 
 static void height_task(void *pvParameters) {
     (void)pvParameters;
+
+    s_height_task_alive = true;
 
     a02yyuw_dev_t dev = {0};
 
@@ -28,6 +37,7 @@ static void height_task(void *pvParameters) {
                                  A02YYUW_PIN_SELECT_PROCESSED);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "a02yyuw_init failed: %s", esp_err_to_name(ret));
+        s_height_task_alive = false;
         s_init_failed = true;
         vTaskDelete(NULL);
         return;
@@ -45,13 +55,48 @@ static void height_task(void *pvParameters) {
     ret = uart_param_config(CONFIG_HEIGHT_UART_PORT, &uart_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "uart_param_config failed: %s", esp_err_to_name(ret));
+        (void)a02yyuw_deinit(&dev);
+        s_height_task_alive = false;
         s_init_failed = true;
         vTaskDelete(NULL);
         return;
     }
 
-    ESP_LOGI(TAG, "A02YYUW ready on port %d RX GPIO %d mode-select GPIO %d (processed)",
-             CONFIG_HEIGHT_UART_PORT, CONFIG_HEIGHT_UART_RX_GPIO, CONFIG_HEIGHT_UART_TX_GPIO);
+    ESP_LOGI(TAG, "A02 probing %d ms (RX GPIO %d)…", CONFIG_HEIGHT_PROBE_TIMEOUT_MS,
+             CONFIG_HEIGHT_UART_RX_GPIO);
+
+    bool seen_valid = false;
+    const int64_t t_deadline = esp_timer_get_time() + (int64_t)CONFIG_HEIGHT_PROBE_TIMEOUT_MS * 1000LL;
+    uint16_t first_mm = 0;
+
+    while (esp_timer_get_time() < t_deadline && !seen_valid) {
+        uint16_t distance_mm = 0;
+        ret = a02yyuw_read_distance(&dev, &distance_mm);
+        if (ret == ESP_OK && distance_mm >= A02YYUW_MIN_RANGE && distance_mm <= A02YYUW_MAX_RANGE) {
+            seen_valid = true;
+            first_mm = distance_mm;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (!seen_valid) {
+        ESP_LOGW(TAG, "Ultrasonic offline / no replies — freeing UART%d (disconnect is OK)",
+                 CONFIG_HEIGHT_UART_PORT);
+        (void)a02yyuw_deinit(&dev);
+        s_height_task_alive = false;
+        s_init_failed = true;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
+        s_height_cm = (int32_t)(first_mm / 10);
+        xSemaphoreGive(s_mutex);
+    }
+
+    ESP_LOGI(TAG, "A02YYUW OK on UART%d (%u mm) — streaming height", CONFIG_HEIGHT_UART_PORT,
+             (unsigned)first_mm);
 
     s_initialized = true;
 
@@ -73,26 +118,41 @@ static void height_task(void *pvParameters) {
 }
 
 esp_err_t height_init(void) {
-    s_mutex = xSemaphoreCreateMutex();
-    if (s_mutex == NULL) {
-        ESP_LOGE(TAG, "Failed to create mutex");
-        return ESP_FAIL;
+    static bool mutex_ready;
+    if (!mutex_ready) {
+        s_mutex = xSemaphoreCreateMutex();
+        if (s_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create mutex");
+            return ESP_FAIL;
+        }
+        mutex_ready = true;
     }
 
-    xTaskCreate(height_task, "height_task", 4096, NULL, 1, NULL);
+    if (s_initialized) {
+        return ESP_OK;
+    }
 
-    const int max_wait = 100; /* 10 seconds timeout */
+    if (!s_height_task_alive) {
+        s_init_failed = false;
+        BaseType_t r = xTaskCreate(height_task, "height_task", 4096, NULL, 1, NULL);
+        if (r != pdPASS) {
+            ESP_LOGW(TAG, "height task create failed");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    const int max_wait = 45; /* probe ~2 s + slack */
     int waited = 0;
     while (!s_initialized && !s_init_failed && waited < max_wait) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         waited++;
     }
     if (s_init_failed) {
-        ESP_LOGE(TAG, "Height task failed to initialise");
+        ESP_LOGW(TAG, "Height skipped — ultrasonic not detected or UART error");
         return ESP_FAIL;
     }
     if (!s_initialized) {
-        ESP_LOGE(TAG, "Height initialisation timed out");
+        ESP_LOGW(TAG, "Height init timed out (sensor task unusually slow)");
         return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;

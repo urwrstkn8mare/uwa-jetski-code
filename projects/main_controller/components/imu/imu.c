@@ -20,11 +20,16 @@ static const char *TAG = "imu";
 #define PRE_CONVERGE_US 8000000
 #define LOG_INTERVAL_US 100000
 
+#define ICM_MAX_CHECK_ID_ROUNDS 24  /* x 500ms ≈ 12s */
+#define ICM_MAX_WHOAMI_ROUNDS 40    /* x 200ms ≈ 8s */
+
 static SemaphoreHandle_t s_mutex;
 static float s_pitch;
 static float s_roll;
 static bool s_ready;
 static bool s_failed;
+/** Worker task is running until it exits via failure (successful path loops forever). */
+static volatile bool s_imu_task_alive;
 
 static float s_qz[4] = {1.0f, 0.0f, 0.0f, 0.0f};
 
@@ -73,7 +78,7 @@ static void quat_relative(const float q_ref[4], const float q_cur[4], float out[
   quat_normalize(out);
 }
 
-static void init_dmp(icm20948_device_t *icm) {
+static bool init_dmp(icm20948_device_t *icm) {
   bool ok = true;
   ok &= (icm20948_init_dmp_sensor_with_defaults(icm) == ICM_20948_STAT_OK);
   ok &= (inv_icm20948_enable_dmp_sensor(icm, INV_ICM20948_SENSOR_ORIENTATION, 1) == ICM_20948_STAT_OK);
@@ -84,13 +89,16 @@ static void init_dmp(icm20948_device_t *icm) {
   ok &= (icm20948_reset_fifo(icm) == ICM_20948_STAT_OK);
   if (!ok) {
     ESP_LOGE(TAG, "DMP configuration failed");
-  } else {
-    ESP_LOGI(TAG, "DMP enabled (Quat9 orientation)");
+    return false;
   }
+  ESP_LOGI(TAG, "DMP enabled (Quat9 orientation)");
+  return true;
 }
 
 static void imu_task(void *arg) {
   (void)arg;
+
+  s_imu_task_alive = true;
 
   s_icm_i2c.i2c_port = (i2c_port_t)CONFIG_ICM_I2C_PORT_NUM;
 #ifdef CONFIG_ICM_I2C_ADDR_AD1
@@ -110,6 +118,7 @@ static void imu_task(void *arg) {
   esp_err_t er = i2c_param_config(s_icm_i2c.i2c_port, &s_i2c_cfg);
   if (er != ESP_OK) {
     ESP_LOGE(TAG, "i2c_param_config failed: %s", esp_err_to_name(er));
+    s_imu_task_alive = false;
     s_failed = true;
     vTaskDelete(NULL);
     return;
@@ -117,6 +126,7 @@ static void imu_task(void *arg) {
   er = i2c_driver_install(s_icm_i2c.i2c_port, s_i2c_cfg.mode, 0, 0, 0);
   if (er != ESP_OK) {
     ESP_LOGE(TAG, "i2c_driver_install failed: %s", esp_err_to_name(er));
+    s_imu_task_alive = false;
     s_failed = true;
     vTaskDelete(NULL);
     return;
@@ -124,14 +134,32 @@ static void imu_task(void *arg) {
 
   icm20948_init_i2c(&s_icm, &s_icm_i2c);
 
+  int id_pass = 0;
   while (icm20948_check_id(&s_icm) != ICM_20948_STAT_OK) {
-    ESP_LOGW(TAG, "check id failed, retry");
+    if (++id_pass >= ICM_MAX_CHECK_ID_ROUNDS) {
+      ESP_LOGW(TAG, "ICM-20948 not responding on I2C — IMU path disabled");
+      (void)i2c_driver_delete(s_icm_i2c.i2c_port);
+      s_imu_task_alive = false;
+      s_failed = true;
+      vTaskDelete(NULL);
+      return;
+    }
+    ESP_LOGW(TAG, "check id failed, retry (%d/%d)", id_pass, ICM_MAX_CHECK_ID_ROUNDS);
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 
   uint8_t whoami = 0;
+  int who_pass = 0;
   while (icm20948_get_who_am_i(&s_icm, &whoami) != ICM_20948_STAT_OK || whoami != ICM_20948_WHOAMI) {
-    ESP_LOGW(TAG, "WHOAMI mismatch (0x%02x)", whoami);
+    if (++who_pass >= ICM_MAX_WHOAMI_ROUNDS) {
+      ESP_LOGW(TAG, "ICM-20948 WHOAMI bad (0x%02x) — IMU path disabled", whoami);
+      (void)i2c_driver_delete(s_icm_i2c.i2c_port);
+      s_imu_task_alive = false;
+      s_failed = true;
+      vTaskDelete(NULL);
+      return;
+    }
+    ESP_LOGW(TAG, "WHOAMI mismatch (0x%02x) retry", whoami);
     vTaskDelay(pdMS_TO_TICKS(200));
   }
 
@@ -152,7 +180,14 @@ static void imu_task(void *arg) {
   icm20948_sleep(&s_icm, false);
   icm20948_low_power(&s_icm, false);
 
-  init_dmp(&s_icm);
+  if (!init_dmp(&s_icm)) {
+    ESP_LOGW(TAG, "DMP setup failed — IMU path disabled");
+    (void)i2c_driver_delete(s_icm_i2c.i2c_port);
+    s_imu_task_alive = false;
+    s_failed = true;
+    vTaskDelete(NULL);
+    return;
+  }
 
   ESP_LOGI(TAG, "Pre-converging DMP (keep still %.1fs)...", PRE_CONVERGE_US / 1e6f);
   int64_t t0 = esp_timer_get_time();
@@ -223,23 +258,40 @@ static void imu_task(void *arg) {
 }
 
 esp_err_t imu_init(void) {
-  s_mutex = xSemaphoreCreateMutex();
-  if (s_mutex == NULL) {
-    return ESP_ERR_NO_MEM;
+  static bool mutex_ready;
+  if (!mutex_ready) {
+    s_mutex = xSemaphoreCreateMutex();
+    if (s_mutex == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+    mutex_ready = true;
   }
 
-  xTaskCreate(imu_task, "imu_icm20948", 12288, NULL, 5, NULL);
+  /* Spawn once per logical attempt — if a worker is already alive, only wait longer. */
+  if (!s_imu_task_alive) {
+    s_ready = false;
+    s_failed = false;
+    BaseType_t r = xTaskCreate(imu_task, "imu_icm20948", 12288, NULL, 5, NULL);
+    if (r != pdPASS) {
+      s_failed = true;
+      ESP_LOGW(TAG, "imu task create failed");
+      return ESP_ERR_NO_MEM;
+    }
+  }
 
-  const int max_wait = 350;
+  /* Worst case: ID(~12s) + WHOAMI(~8s) + converge(8s) + margin — do not underestimate */
+  const int max_wait = 500;
   int waited = 0;
   while (!s_ready && !s_failed && waited < max_wait) {
     vTaskDelay(pdMS_TO_TICKS(100));
     waited++;
   }
   if (s_failed) {
+    ESP_LOGW(TAG, "IMU init failed (sensor missing or bus error)");
     return ESP_FAIL;
   }
   if (!s_ready) {
+    ESP_LOGW(TAG, "IMU init timed out (still converging / slow bus)");
     return ESP_ERR_TIMEOUT;
   }
   return ESP_OK;

@@ -7,7 +7,7 @@ menu "UWA Jetski — Rudder potentiometer (ADC)"
     config POT_GPIO_NUM
         int "GPIO for ADC potentiometer"
         range 1 48
-        default 7
+        default 1
 
     config POT_ADC_RAW_MIN
         int "Raw ADC at 0%%"

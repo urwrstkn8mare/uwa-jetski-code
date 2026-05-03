@@ -4,9 +4,10 @@
 #include <stdint.h>
 
 /**
- * @brief Initialize the A02YYUW ultrasonic height sensor.
+ * @brief Initialize the A02YYUW ultrasonic height sensor (if replies on UART).
  *
- * This function blocks until the UART reader task is ready.
+ * Blocks briefly while a task probes ~2 s for valid distance frames; unplugged =
+ * graceful failure (`ESP_FAIL`), frees UART — UI shows “ultrasonic N/C”.
  *
  * @return ESP_OK on success, ESP_FAIL on error.
  */

@@ -12,6 +12,8 @@ static int32_t s_lon_e7;
 static int16_t s_speed_kmh_x10;
 static int16_t s_heading_cdeg;
 static bool s_have_gps;
+static bool s_have_pot;
+static TickType_t s_pot_last_tick;
 
 void vehicle_inputs_init(void) { s_mux = xSemaphoreCreateMutex(); }
 
@@ -27,6 +29,8 @@ void vehicle_inputs_on_can_rx(const uint8_t buffer[8], uint32_t header_id) {
     uint16_t v;
     memcpy(&v, buffer, sizeof(v));
     s_pot_pct = (v > 100) ? 100 : v;
+    s_have_pot = true;
+    s_pot_last_tick = xTaskGetTickCount();
     break;
   }
   case CAN_ID_GPS_POSITION:
@@ -51,6 +55,29 @@ uint16_t vehicle_inputs_get_pot_pct(void) {
     xSemaphoreGive(s_mux);
   }
   return v;
+}
+
+bool vehicle_inputs_get_pot_fresh(uint32_t max_age_ms, uint16_t *pot_pct_out) {
+  if (s_mux == NULL || xSemaphoreTake(s_mux, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return false;
+  }
+  const bool have = s_have_pot;
+  const uint16_t pct = s_pot_pct;
+  const TickType_t last = s_pot_last_tick;
+  xSemaphoreGive(s_mux);
+
+  if (!have) {
+    return false;
+  }
+  TickType_t now = xTaskGetTickCount();
+  TickType_t max_age_ticks = pdMS_TO_TICKS(max_age_ms);
+  if ((now - last) > max_age_ticks) {
+    return false;
+  }
+  if (pot_pct_out != NULL) {
+    *pot_pct_out = pct;
+  }
+  return true;
 }
 
 bool vehicle_inputs_get_gps(int32_t *lat_e7, int32_t *lon_e7, int16_t *speed_kmh_x10, int16_t *heading_cdeg,
