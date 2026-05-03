@@ -1,166 +1,244 @@
-#include "imu.h"
-#include "height.h"
 #include "can.h"
 #include "can_ids.h"
+#include "driver/ledc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "driver/ledc.h"
-#include <string.h>
+#include "height.h"
+#include "imu.h"
+#include "lvgl.h"
+#include "t_display_s3.h"
+#include <inttypes.h>
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 static const char *TAG = "main";
 
-#define SERVO_GPIO GPIO_NUM_1
-#define SERVO_LEDC_CHANNEL LEDC_CHANNEL_0
-#define SERVO_LEDC_TIMER LEDC_TIMER_0
+static SemaphoreHandle_t s_iu_mux;
+static uint16_t s_pot_pct;
+static int32_t s_lat_e7;
+static int32_t s_lon_e7;
+static int16_t s_speed_kmh_x10;
+static int16_t s_heading_cdeg;
+static bool s_have_gps;
 
-static SemaphoreHandle_t s_pot_mutex;
-static uint16_t s_potentiometer_value = 0;
-static uint32_t s_loop_count = 0;
+static tdisplays3_handle_t s_board;
+static lv_obj_t *s_dbg_label;
 
-static void can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp)
-{
-    (void)timestamp;
-    if (buffer == NULL) {
-        return;
-    }
-    if (header_id == CAN_ID_POTENTIOMETER) {
-        uint16_t pot_val;
-        memcpy(&pot_val, &buffer[0], sizeof(pot_val));
-        if (xSemaphoreTake(s_pot_mutex, portMAX_DELAY) == pdTRUE) {
-            s_potentiometer_value = pot_val;
-            xSemaphoreGive(s_pot_mutex);
-        }
-        ESP_LOGI(TAG, "Potentiometer: %u", pot_val);
-    }
+#define SERVO_TIMER ((ledc_timer_t)CONFIG_SERVO_LEDC_TIMER_IDX)
+#define CH_A ((ledc_channel_t)CONFIG_SERVO_LEDC_CHANNEL_A)
+#define CH_B ((ledc_channel_t)CONFIG_SERVO_LEDC_CHANNEL_B)
+
+static void can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
+  (void)timestamp;
+  if (buffer == NULL || s_iu_mux == NULL) {
+    return;
+  }
+  if (xSemaphoreTake(s_iu_mux, pdMS_TO_TICKS(20)) != pdTRUE) {
+    return;
+  }
+  switch (header_id) {
+  case CAN_ID_POTENTIOMETER: {
+    uint16_t v;
+    memcpy(&v, buffer, sizeof(v));
+    s_pot_pct = (v > 100) ? 100 : v;
+    break;
+  }
+  case CAN_ID_GPS_POSITION:
+    memcpy(&s_lat_e7, &buffer[0], sizeof(s_lat_e7));
+    memcpy(&s_lon_e7, &buffer[4], sizeof(s_lon_e7));
+    s_have_gps = true;
+    break;
+  case CAN_ID_GPS_VELOCITY:
+    memcpy(&s_speed_kmh_x10, &buffer[0], sizeof(s_speed_kmh_x10));
+    memcpy(&s_heading_cdeg, &buffer[2], sizeof(s_heading_cdeg));
+    break;
+  default:
+    break;
+  }
+  xSemaphoreGive(s_iu_mux);
 }
 
-static void control_task(void *arg)
-{
-    (void)arg;
-    for (;;) {
-        float pitch, roll;
-        if (imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
-            int16_t pitch_i = (int16_t)roundf(pitch);
-            int16_t roll_i = (int16_t)roundf(roll);
-            uint8_t can_data[4];
-            memcpy(&can_data[0], &pitch_i, sizeof(pitch_i));
-            memcpy(&can_data[2], &roll_i, sizeof(roll_i));
-            can_tx(CAN_ID_ATTITUDE, can_data, sizeof(can_data));
-        }
-
-        int32_t height_cm;
-        if (height_get_cm(&height_cm) == ESP_OK) {
-            uint16_t height_u = (uint16_t)height_cm;
-            uint8_t can_data[2];
-            memcpy(&can_data[0], &height_u, sizeof(height_u));
-            can_tx(CAN_ID_HEIGHT, can_data, sizeof(can_data));
-        }
-
-        // Update servo based on potentiometer (0-100 -> 1000-2000 µs)
-        uint16_t pot_val = 0;
-        if (xSemaphoreTake(s_pot_mutex, portMAX_DELAY) == pdTRUE) {
-            pot_val = s_potentiometer_value;
-            xSemaphoreGive(s_pot_mutex);
-        }
-        if (pot_val > 100) pot_val = 100;
-        uint32_t pulse_us = 1000 + (pot_val * 10);  // 1000-2000 µs
-        uint32_t duty = (pulse_us * 8192) / 20000;  // Convert to duty cycle (13-bit = 8192 max)
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL, duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, SERVO_LEDC_CHANNEL);
-
-        // Transmit servo position (-20..20 degrees)
-        int16_t servo_deg = (int16_t)(((int32_t)pulse_us - 1500) / 25);
-        uint8_t servo_data[2];
-        memcpy(&servo_data[0], &servo_deg, sizeof(servo_deg));
-        can_tx(CAN_ID_SERVO_POS, servo_data, sizeof(servo_data));
-
-        // Periodically log CAN TX stats (every 10 seconds)
-        s_loop_count++;
-        if (s_loop_count % 200 == 0) {  // 200 × 50ms = 10 seconds
-            uint32_t attempts, failures;
-            can_get_tx_stats(&attempts, &failures);
-            if (failures > 0) {
-                ESP_LOGW(TAG, "CAN TX stats: %u attempts, %u failures (%.1f%% success)",
-                         attempts, failures,
-                         100.0f * (attempts - failures) / attempts);
-            }
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(50));
-    }
+static void ledc_servo_set_us(ledc_channel_t ch, uint32_t pulse_us) {
+  if (pulse_us < 500) {
+    pulse_us = 500;
+  }
+  if (pulse_us > 2500) {
+    pulse_us = 2500;
+  }
+  const uint32_t duty = (pulse_us * 8192) / 20000;
+  ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, duty);
+  ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
 }
 
-static esp_err_t init_with_retry(const char *name, esp_err_t (*init_fn)(void), int retries)
-{
-    esp_err_t ret = ESP_FAIL;
-    for (int i = 0; i < retries; i++) {
-        ret = init_fn();
-        if (ret == ESP_OK) {
-            return ESP_OK;
-        }
-        ESP_LOGW(TAG, "%s init failed (attempt %d/%d): %s", name, i + 1, retries, esp_err_to_name(ret));
-        vTaskDelay(pdMS_TO_TICKS(500));
-    }
-    ESP_LOGE(TAG, "%s init failed after %d attempts", name, retries);
-    return ret;
+static int16_t pulse_to_deg(int32_t pulse_us) {
+  return (int16_t)((pulse_us - 1500) / 25);
 }
 
-static esp_err_t can_init_wrapper(void)
-{
-    return can_init(can_rx_cb);
+static void control_task(void *arg) {
+  (void)arg;
+  uint32_t loop = 0;
+  for (;;) {
+    float pitch, roll;
+    if (imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
+      int16_t pitch_i = (int16_t)lroundf(pitch);
+      int16_t roll_i = (int16_t)lroundf(roll);
+      uint8_t b[4];
+      memcpy(&b[0], &pitch_i, sizeof(pitch_i));
+      memcpy(&b[2], &roll_i, sizeof(roll_i));
+      can_tx(CAN_ID_ATTITUDE, b, sizeof(b));
+    }
+
+    int32_t hcm;
+    if (height_get_cm(&hcm) == ESP_OK) {
+      uint16_t hu = (uint16_t)hcm;
+      uint8_t b[2];
+      memcpy(b, &hu, sizeof(hu));
+      can_tx(CAN_ID_HEIGHT, b, sizeof(b));
+    }
+
+    uint16_t pot = 0;
+    if (s_iu_mux && xSemaphoreTake(s_iu_mux, pdMS_TO_TICKS(20)) == pdTRUE) {
+      pot = s_pot_pct;
+      xSemaphoreGive(s_iu_mux);
+    }
+    if (pot > 100) {
+      pot = 100;
+    }
+    const uint32_t pulse = (uint32_t)(1000 + (int32_t)pot * 10);
+    ledc_servo_set_us(CH_A, pulse);
+    ledc_servo_set_us(CH_B, pulse);
+
+    int16_t sa = pulse_to_deg((int32_t)pulse);
+    int16_t sb = sa;
+    uint8_t sb_c[4];
+    memcpy(&sb_c[0], &sa, sizeof(sa));
+    memcpy(&sb_c[2], &sb, sizeof(sb));
+    can_tx(CAN_ID_SERVO_POS, sb_c, sizeof(sb_c));
+
+    loop++;
+    if (loop % 200 == 0) {
+      uint32_t a, f;
+      can_get_tx_stats(&a, &f);
+      if (f > 0) {
+        ESP_LOGW(TAG, "CAN TX %" PRIu32 " tries %" PRIu32 " fail", a, f);
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
 }
 
-void app_main(void)
-{
-    s_pot_mutex = xSemaphoreCreateMutex();
-    if (s_pot_mutex == NULL) {
-        ESP_LOGE(TAG, "Failed to create potentiometer mutex");
-        return;
-    }
+static void ui_refresh_timer(lv_timer_t *t) {
+  (void)t;
+  float pitch = 0, roll = 0;
+  (void)imu_get_pitch_roll(&pitch, &roll);
+  int32_t hcm = -1;
+  (void)height_get_cm(&hcm);
 
-    if (init_with_retry("IMU", imu_init, 3) != ESP_OK) {
-        ESP_LOGW(TAG, "Continuing without IMU");
-    }
-    if (init_with_retry("Height", height_init, 3) != ESP_OK) {
-        ESP_LOGW(TAG, "Continuing without height sensor");
-    }
-    if (init_with_retry("CAN", can_init_wrapper, 3) != ESP_OK) {
-        ESP_LOGE(TAG, "CAN init failed, cannot continue");
-        return;
-    }
-    ESP_LOGI(TAG, "IMU, height sensor and CAN ready");
+  uint16_t pot = 0;
+  int32_t lat = 0, lon = 0;
+  int speed_x10 = 0;
+  int hdg_c = 0;
+  bool gps = false;
+  if (s_iu_mux && xSemaphoreTake(s_iu_mux, pdMS_TO_TICKS(10)) == pdTRUE) {
+    pot = s_pot_pct;
+    lat = s_lat_e7;
+    lon = s_lon_e7;
+    speed_x10 = s_speed_kmh_x10;
+    hdg_c = s_heading_cdeg;
+    gps = s_have_gps;
+    xSemaphoreGive(s_iu_mux);
+  }
 
-    // Initialize LEDC for servo control
-    ledc_timer_config_t ledc_timer = {
+  char buf[512];
+  snprintf(buf, sizeof(buf),
+           "MAIN node\n"
+           "P:%.1f R:%.1f deg\n"
+           "H:%" PRId32 " cm\n"
+           "Pot:%u -> %lu us\n"
+           "lat_e7:%" PRId32 " lon_e7:%" PRId32 "\n"
+           "spd:%d.%d km/h hdg:%d.%02d deg\n"
+           "%s",
+           (double)pitch, (double)roll, hcm, (unsigned)pot,
+           (unsigned long)(1000u + (unsigned)pot * 10u), lat, lon, speed_x10 / 10,
+           abs(speed_x10 % 10), hdg_c / 100, abs(hdg_c % 100),
+           gps ? "GPS ok" : "no GPS fix pos");
+
+  if (tdisplays3_display_lock(100)) {
+    lv_label_set_text(s_dbg_label, buf);
+    tdisplays3_display_unlock();
+  }
+}
+
+static esp_err_t init_retry(const char *name, esp_err_t (*fn)(void), int n) {
+  esp_err_t r = ESP_FAIL;
+  for (int i = 0; i < n; i++) {
+    r = fn();
+    if (r == ESP_OK) {
+      return ESP_OK;
+    }
+    ESP_LOGW(TAG, "%s init fail (%d/%d): %s", name, i + 1, n, esp_err_to_name(r));
+    vTaskDelay(pdMS_TO_TICKS(400));
+  }
+  return r;
+}
+
+static esp_err_t can_wrap(void) { return can_init(can_rx_cb); }
+
+void app_main(void) {
+  s_iu_mux = xSemaphoreCreateMutex();
+
+  ESP_ERROR_CHECK(tdisplays3_init(&s_board));
+  if (!tdisplays3_display_lock(200)) {
+    ESP_LOGE(TAG, "Display lock failed");
+    return;
+  }
+  s_dbg_label = lv_label_create(lv_screen_active());
+  lv_obj_set_width(s_dbg_label, lv_display_get_horizontal_resolution(NULL) - 8);
+  lv_label_set_long_mode(s_dbg_label, LV_LABEL_LONG_WRAP);
+  lv_obj_align(s_dbg_label, LV_ALIGN_TOP_LEFT, 4, 4);
+  lv_label_set_text(s_dbg_label, "MAIN\ninit…");
+  tdisplays3_display_unlock();
+  (void)lv_timer_create(ui_refresh_timer, 200, NULL);
+
+  if (init_retry("IMU", imu_init, 3) != ESP_OK) {
+    ESP_LOGW(TAG, "IMU not available");
+  }
+  if (init_retry("Height", height_init, 3) != ESP_OK) {
+    ESP_LOGW(TAG, "Height sensor not available");
+  }
+  if (init_retry("CAN", can_wrap, 3) != ESP_OK) {
+    ESP_LOGE(TAG, "CAN required");
+    return;
+  }
+
+  const ledc_timer_config_t tcfg = {
+      .speed_mode = LEDC_LOW_SPEED_MODE,
+      .timer_num = SERVO_TIMER,
+      .duty_resolution = LEDC_TIMER_13_BIT,
+      .freq_hz = 50,
+      .clk_cfg = LEDC_AUTO_CLK,
+  };
+  ESP_ERROR_CHECK(ledc_timer_config(&tcfg));
+
+  const ledc_channel_t chs[2] = {CH_A, CH_B};
+  const int gpios[2] = {CONFIG_SERVO_A_GPIO, CONFIG_SERVO_B_GPIO};
+  for (int i = 0; i < 2; i++) {
+    ledc_channel_config_t c = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = SERVO_LEDC_TIMER,
-        .duty_resolution = LEDC_TIMER_13_BIT,
-        .freq_hz = 50,  // 50 Hz for servo (20 ms period)
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    esp_err_t ret = ledc_timer_config(&ledc_timer);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "ledc_timer_config failed: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    ledc_channel_config_t ledc_channel = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = SERVO_LEDC_CHANNEL,
-        .timer_sel = SERVO_LEDC_TIMER,
+        .channel = chs[i],
+        .timer_sel = SERVO_TIMER,
         .intr_type = LEDC_INTR_DISABLE,
-        .gpio_num = SERVO_GPIO,
+        .gpio_num = gpios[i],
         .duty = 0,
         .hpoint = 0,
     };
-    ret = ledc_channel_config(&ledc_channel);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "ledc_channel_config failed: %s", esp_err_to_name(ret));
-        return;
-    }
-    ESP_LOGI(TAG, "Servo PWM initialized on GPIO %d", SERVO_GPIO);
+    ESP_ERROR_CHECK(ledc_channel_config(&c));
+  }
+  ESP_LOGI(TAG, "Servos LEDC ch A=%d B=%d", CONFIG_SERVO_A_GPIO, CONFIG_SERVO_B_GPIO);
 
-    xTaskCreate(control_task, "control", 4096, NULL, 6, NULL);
+  xTaskCreate(control_task, "control", 4096, NULL, 6, NULL);
 }

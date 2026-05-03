@@ -1,87 +1,39 @@
-# Main Controller
+# Main controller (T-Display-S3)
 
 ## Overview
 
-ESP32-based main controller that reads attitude (pitch/roll) from an MPU9250 IMU via I2C, reads ride height from an A02YYUW ultrasonic sensor via UART, and broadcasts both over CAN bus.
+ESP32-S3 board (LilyGO T-Display-S3) that:
 
-## Hardware
+- Reads **pitch/roll** from an **ICM-20948** (I2C + DMP, Quat9 orientation) and sends `CAN_ID_ATTITUDE` (0x100).
+- Reads **ride height** from the **A02YYUW** ultrasonic module (UART) and sends `CAN_ID_HEIGHT` (0x101).
+- Drives **two 50 Hz PWM servos** (LEDC) from the **potentiometer** value received over CAN (`CAN_ID_POTENTIOMETER`, 0x102) and sends `CAN_ID_SERVO_POS` (0x103) with two `int16` degrees.
+- Receives **GPS** snapshots from the **auxiliary controller** (`CAN_ID_GPS_POSITION` 0x104, `CAN_ID_GPS_VELOCITY` 0x105) for the on-panel status text.
+- Shows a **debug LVGL** screen (local + CAN) on the built-in display (`tdisplays3` from the example repo; see `main/idf_component.yml`).
 
-- **MCU**: ESP32
-- **IMU**: MPU9250 (Grove IMU 10DOF v2.0)
-  - **I2C Pins**: SCL=33, SDA=32
-  - **I2C Address**: 0x68
-- **Height Sensor**: A02YYUW (or A0221AU) ultrasonic distance sensor
-  - **UART Port**: configurable (default UART_NUM_2)
-  - **RX Pin**: configurable (default GPIO 13)
-  - **TX Pin**: configurable (default GPIO 14)
-  - **Baud Rate**: 9600
-  - **Trigger**: sends `0xFF` trigger byte to support both auto-output and controlled sensor variants
-- **CAN (TWAI)**:
-  - **TX Pin**: GPIO 26
-  - **RX Pin**: GPIO 36
-  - **Bitrate**: 200 kbps
+## Kconfig (Menuconfig)
 
-## Software Architecture
+- **CAN** — `CANTX`, `CANRX`, bitrate (`shared_components/can/Kconfig.projbuild`).
+- **Height (A02YYUW)** — UART port, RX, TX (`components/height/Kconfig.projbuild`).
+- **ICM-20948** — I2C port, SDA, SCL, 0x68 vs 0x69 (`main/Kconfig.projbuild`).
+- **Servos** — GPIO per channel, LEDC timer and channels (`main/Kconfig.projbuild`).
 
-### IMU Component (`components/imu`)
+## Components
 
-- Initializes the MPU9250 and its on-chip DMP (Digital Motion Processor)
-- Performs gyro bias calibration on startup
-- Pre-converges the DMP filter for 8 seconds (keep sensor still during boot)
-- Captures a zero-reference quaternion so subsequent pitch/roll are relative to the boot orientation
-- Runs a background FreeRTOS task that reads DMP FIFO at ~200 Hz
-- Stores the latest pitch/roll in a mutex-protected buffer
+- `components/imu` — `cybergear-robotics/icm20948` (registry) + legacy I2C driver. **Attitude is from the DMP only** (sensor `INV_ICM20948_SENSOR_ORIENTATION`, Quat9 from `inv_icm20948_read_dmp_data`), not from raw register reads.
+- `components/height` — A02YYUW driver (git dep unchanged).
+- `components/can` — symlink to `shared_components/can` (TWAI on-chip).
+- `main/idf_component.yml` — pulls **icm20948** and **tdisplays3** (git).
 
-### Height Component (`components/height`)
+## Build
 
-- Initializes UART for the A02YYUW sensor
-- Sends a `0xFF` trigger byte on TX to support both auto-output and controlled sensor variants
-- Runs a background FreeRTOS task that parses 4-byte sensor frames
-- Validates frame checksum before accepting a reading
-- Stores the latest height (in centimetres) in a mutex-protected buffer
-- Configurable UART port, RX pin and TX pin via `menuconfig`
-
-### CAN Component (`shared_components/can`)
-
-- Uses the ESP-IDF TWAI driver (`esp_driver_twai`)
-- Configured for standard 11-bit IDs at 200 kbps
-- Provides `can_init()` and `can_tx()` APIs
-
-### Main Application (`main/main.c`)
-
-- Initializes IMU, height sensor and CAN
-- Reads pitch/roll from the IMU component every 100 ms
-- Reads height from the height sensor every 100 ms
-- Transmits CAN frames:
-  - ID `0x100` – Attitude:
-    - Bytes 0-1: Pitch (int16, degrees, rounded)
-    - Bytes 2-3: Roll (int16, degrees, rounded)
-  - ID `0x101` – Height:
-    - Bytes 0-1: Height (uint16, centimetres)
-
-## Startup Sequence
-
-1. **I2C bus init**
-2. **MPU9250 DMP init**
-3. **Gyro bias calibration** (~1 second, keep sensor still)
-4. **DMP pre-convergence** (8 seconds, keep sensor still)
-5. **Zero-reference capture** (sensor orientation at this point becomes "zero")
-6. **Height sensor UART init**
-7. **CAN init**
-8. **Main loop** begins
-
-## Build/Flash/Monitor
+From the repository root (see top-level `README.md` for scripts):
 
 ```bash
-../../scripts/build.sh
-../../scripts/flash.sh
-python ../../scripts/monitor.py -t <timeout>
-```
-
-Or using the activated aliases (after `source ../../activate_scripts.sh`):
-
-```bash
+source ./activate_scripts.sh
+cd projects/main_controller
 build
-flash
-monitor
 ```
+
+## Note
+
+The managed `icm20948` package still compiles an SPI file that triggers a pointer-type warning on ESP-IDF 5.5; the project CMake turns that into a non-fatal warning. Only the I2C path is used.

@@ -3,17 +3,18 @@
 #include "esp_err.h"
 
 /**
- * @brief Initialize the IMU and zero the sensor.
+ * @brief Initialize the ICM-20948 and its DMP, then zero the sensor.
  *
- * This function blocks until the DMP is ready and the sensor has been zeroed.
- * Keep the sensor stationary during this call.
+ * Configures the InvenSense DMP (9-axis orientation / Quat9), enables the FIFO,
+ * and blocks until the DMP is running and a zero reference is captured. Keep
+ * the board still during this call.
  *
  * @return ESP_OK on success, ESP_FAIL on error.
  */
 esp_err_t imu_init(void);
 
 /**
- * @brief Get the current pitch and roll relative to the zeroed orientation.
+ * @brief Get pitch and roll from the DMP orientation quaternion (relative to zero).
  *
  * @param[out] pitch Degrees of pitch relative to zero.
  * @param[out] roll  Degrees of roll relative to zero.

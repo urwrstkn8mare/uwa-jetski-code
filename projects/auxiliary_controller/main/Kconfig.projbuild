@@ -1,0 +1,42 @@
+menu "Auxiliary controller — Neo-6M UART"
+    config GPS_UART_PORT_NUM
+        int "UART port"
+        range 0 2
+        default 1
+
+    config GPS_UART_RX_GPIO
+        int "GPS RX GPIO (connect to module TX)"
+        range 0 48
+        default 18
+
+    config GPS_UART_TX_GPIO
+        int "GPS TX GPIO (connect to module RX, optional)"
+        range 0 48
+        default 17
+
+    config GPS_UART_BAUD
+        int "UART baud rate"
+        default 9600
+
+endmenu
+
+menu "Auxiliary controller — rudder potentiometer ADC"
+    config POT_ADC_UNIT
+        int "ADC unit (1 or 2 on ESP32-S3)"
+        range 1 2
+        default 1
+
+    config POT_GPIO_NUM
+        int "GPIO for ADC potentiometer"
+        range 1 48
+        default 7
+
+    config POT_ADC_RAW_MIN
+        int "Raw ADC at 0%%"
+        default 0
+
+    config POT_ADC_RAW_MAX
+        int "Raw ADC at 100%%"
+        default 4095
+
+endmenu

@@ -1,22 +1,4 @@
 dependencies:
-  a02yyuw:
-    component_hash: e8482d8ccee1c5e8a0f178580d05ee9ae7753a75e0e1ab83bf04e3f87436738e
-    dependencies: []
-    source:
-      git: https://github.com/SiriusBrightstar/ESP_IDF_A02YYUW.git
-      path: components/a02yyuw
-      type: git
-    version: ef554387861825a4eb2001d176154612082bcb04
-  cybergear-robotics/icm20948:
-    component_hash: 716f16b9546ba47575023d3b84306b2d5af0de7f62d0332078820923df14eed4
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=5.2'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 0.1.0
   espressif/button:
     component_hash: d0afa32f0e50d60bc0c6fc23f7eea98adc6b02cfe70b590bc52c23c506745287
     dependencies:
@@ -82,10 +64,8 @@ dependencies:
       type: git
     version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
 direct_dependencies:
-- a02yyuw
-- cybergear-robotics/icm20948
 - idf
 - tdisplays3
-manifest_hash: b3df8c8ac9614b89a65be4d8e25eaab13afaa131e2ca1ac1c37f188948dfd1f9
+manifest_hash: c2b7adc781f1d38a1b879a37f41f2cff5d8962008784a50cbdf14deae9b93377
 target: esp32s3
 version: 2.0.0

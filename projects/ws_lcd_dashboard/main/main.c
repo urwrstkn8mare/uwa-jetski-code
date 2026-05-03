@@ -1,7 +1,9 @@
-#include "esp_err.h"
-#include "esp_log.h"
+#include "can.h"
+#include "can_ui_bridge.h"
 #include "dashboard_demo.h"
 #include "dashboard_ui.h"
+#include "esp_err.h"
+#include "esp_log.h"
 #include "ws_display.h"
 
 #include <stdint.h>
@@ -18,27 +20,35 @@ typedef struct {
 
 static dashboard_runtime_t s_runtime;
 
-static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *user_data)
-{
+static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *user_data) {
   (void)user_data;
   const lv_font_t *font = NULL;
   esp_err_t err = ws_display_font_get(size_px,
-      (weight >= 600)
-      ? WS_DISPLAY_FONT_WEIGHT_SEMIBOLD : WS_DISPLAY_FONT_WEIGHT_REGULAR,
+      (weight >= 600) ? WS_DISPLAY_FONT_WEIGHT_SEMIBOLD : WS_DISPLAY_FONT_WEIGHT_REGULAR,
       &font);
   return (err == ESP_OK) ? font : NULL;
 }
 
+static void can_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
+  can_ui_bridge_on_rx(buffer, header_id, timestamp);
+}
+
 static void dashboard_timer_cb(lv_timer_t *timer) {
+  static bool logged_first = false;
   dashboard_runtime_t *runtime = lv_timer_get_user_data(timer);
   if (runtime == NULL || runtime->ui == NULL) {
     lv_timer_pause(timer);
     return;
   }
 
+  if (!logged_first && can_ui_bridge_got_frame()) {
+    logged_first = true;
+    ESP_LOGI(TAG, "Receiving CAN data");
+  }
+
   const uint32_t frame_start_ms = lv_tick_get();
   dashboard_data_t data;
-  dashboard_demo_fill(&data, lv_tick_elaps(runtime->start_ms));
+  can_ui_bridge_merge_demo(&data, lv_tick_elaps(runtime->start_ms));
   dashboard_ui_set_data(runtime->ui, &data);
 
   const uint32_t frame_time_ms = lv_tick_elaps(frame_start_ms);
@@ -60,6 +70,13 @@ static void dashboard_timer_cb(lv_timer_t *timer) {
 }
 
 void app_main(void) {
+  can_ui_bridge_init();
+  if (can_init(can_rx_cb) != ESP_OK) {
+    ESP_LOGE(TAG, "CAN init failed");
+    return;
+  }
+  ESP_LOGI(TAG, "CAN initialised, waiting for data...");
+
   ESP_ERROR_CHECK(ws_display_init());
   ESP_ERROR_CHECK(ws_display_lock(-1));
 
@@ -84,7 +101,6 @@ void app_main(void) {
   lv_sysmon_show_performance(lv_display_get_default());
 #endif
 
-  /* Run UI updates at 20 Hz to keep display refresh safely above 10 FPS. */
   (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
 
   ws_display_unlock();

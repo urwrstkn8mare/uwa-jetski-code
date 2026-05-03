@@ -1,4 +1,4 @@
-# ESP-IDF — main_controller on T-Display-S3 + TWAI
+# Merged T-Display-S3–oriented defaults + CAN (pins set via defconfig)
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASH_MODE_AUTO_DETECT=n
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
