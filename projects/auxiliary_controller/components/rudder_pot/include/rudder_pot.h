@@ -11,3 +11,6 @@ esp_err_t rudder_pot_init(void);
 
 /** Last scaled demand 0..100 (same value sent on CAN), for local status UI. */
 uint16_t rudder_pot_get_last_pct(void);
+
+/** Last raw ADC sample, for calibration/debug UI. */
+int rudder_pot_get_last_raw(void);

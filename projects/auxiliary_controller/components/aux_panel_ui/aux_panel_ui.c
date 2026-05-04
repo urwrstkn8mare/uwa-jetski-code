@@ -18,6 +18,7 @@ static const char *TAG_UI = "aux_panel_ui";
 
 static tdisplays3_handle_t s_board;
 static lv_obj_t *s_lbl;
+static lv_obj_t *s_panel;
 /* Timer runs on the LVGL task (4 KiB stack in tdisplays3); keep format buffer off the stack. */
 static char s_ui_text_buf[1024];
 
@@ -43,6 +44,7 @@ static bool wait_lvgl_display_lock_ms(uint32_t total_ms, uint32_t slice_ms) {
 static void ui_timer(lv_timer_t *t) {
   (void)t;
   const unsigned pot = rudder_pot_get_last_pct();
+  const int pot_raw = rudder_pot_get_last_raw();
 
   int32_t la = 0, lo = 0;
   int16_t sp = 0, hd = 0;
@@ -73,7 +75,7 @@ static void ui_timer(lv_timer_t *t) {
 
   snprintf(
       s_ui_text_buf, sizeof(s_ui_text_buf),
-      "Pot %u%% (pin1)\n"
+      "Pot %u%% raw %d [%d..%d]\n"
       "CAN %s T%u R%u b%" PRIu32 "\n"
       "txQ %" PRIu32 " fl%" PRIu32 "\n"
       "fx%u gq%u st%u\n"
@@ -84,7 +86,7 @@ static void ui_timer(lv_timer_t *t) {
       " ok%" PRIu32 " x%" PRIu32 " %s\n"
       "%.100s\n"
       "%.100s",
-      pot, can_label, (unsigned)cw.tx_error_count,
+      pot, pot_raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX, can_label, (unsigned)cw.tx_error_count,
       (unsigned)cw.rx_error_count, cw.bus_error_events, ca, cf, (unsigned)fix, (unsigned)gga_q,
       (unsigned)gd.sats_used_last_gga, (long)la, (long)lo, (unsigned)(sp / 10), sp_dec, hd_deg, hd_frac,
       (unsigned)gd.uart_baud, gd.uart_bytes_rx, gd.uart_lines_rx, gd.nmea_parse_ok, gd.nmea_parse_fail,
@@ -93,10 +95,9 @@ static void ui_timer(lv_timer_t *t) {
   if (s_lbl == NULL) {
     return;
   }
-  if (tdisplays3_display_lock(120)) {
-    lv_label_set_text(s_lbl, s_ui_text_buf);
-    tdisplays3_display_unlock();
-  }
+  /* This callback already runs on the LVGL task context. Locking the display here can
+   * prevent updates and leave the screen blank except LVGL perf overlay. */
+  lv_label_set_text(s_lbl, s_ui_text_buf);
 }
 
 void aux_panel_ui_init(void) {
@@ -110,7 +111,14 @@ void aux_panel_ui_init(void) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-  s_lbl = lv_label_create(scr);
+  s_panel = lv_obj_create(scr);
+  lv_obj_remove_style_all(s_panel);
+  lv_obj_set_size(s_panel, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(s_panel, lv_color_hex(0x000000), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_panel, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_align(s_panel, LV_ALIGN_CENTER, 0, 0);
+
+  s_lbl = lv_label_create(s_panel);
   lv_obj_set_style_text_color(s_lbl, lv_color_white(), LV_PART_MAIN);
   /* Montserrat 12: room for raw NMEA + UART stats on small panel */
   lv_obj_set_style_text_font(s_lbl, &lv_font_montserrat_12, LV_PART_MAIN);
@@ -119,8 +127,11 @@ void aux_panel_ui_init(void) {
   lv_obj_set_width(s_lbl, hres > 4 ? hres - 4 : hres);
   lv_label_set_long_mode(s_lbl, LV_LABEL_LONG_WRAP);
   lv_obj_align(s_lbl, LV_ALIGN_TOP_LEFT, 3, 3);
+  lv_obj_move_foreground(s_panel);
+  lv_obj_move_foreground(s_lbl);
   lv_label_set_text(s_lbl,
                     "Auxiliary controller\nInitialising CAN / GPS…");
+  ESP_LOGI(TAG_UI, "label created, hres=%d", (int)hres);
   tdisplays3_display_unlock();
 
   lv_timer_t *tm = lv_timer_create(ui_timer, 200, NULL);

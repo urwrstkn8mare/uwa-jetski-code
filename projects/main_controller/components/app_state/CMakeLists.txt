@@ -1,4 +1,4 @@
 idf_component_register(
-    SRCS "vehicle_inputs.c"
+    SRCS "app_state.c"
     INCLUDE_DIRS "include"
     REQUIRES can freertos)

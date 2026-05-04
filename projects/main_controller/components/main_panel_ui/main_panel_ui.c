@@ -1,17 +1,16 @@
 #include "main_panel_ui.h"
 
+#include "app_state.h"
+#include "can.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "can.h"
 #include "height.h"
 #include "imu.h"
 #include "lvgl.h"
-#include "runtime_health.h"
-#include "t_display_s3.h"
 #include "servo_drive.h"
-#include "vehicle_inputs.h"
+#include "t_display_s3.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -19,7 +18,7 @@
 
 static const char *TAG_UI = "main_panel_ui";
 
-static lv_disp_t *s_display;
+static tdisplays3_handle_t s_board;
 static lv_obj_t *s_dbg_label;
 
 /* taskLVGL runs this timer only on that task — static scratch avoids stack churn. */
@@ -31,8 +30,8 @@ static char s_ui_buf[320];
 
 static void ui_refresh_timer(lv_timer_t *t) {
   (void)t;
-  runtime_health_t rh;
-  runtime_health_get(&rh);
+  app_state_t rh;
+  app_state_get(&rh);
 
   float pitch = 0, roll = 0;
   if (rh.imu_ok && imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
@@ -50,7 +49,7 @@ static void ui_refresh_timer(lv_timer_t *t) {
   }
 
   uint16_t pot = 50;
-  const bool pot_fresh = vehicle_inputs_get_pot_fresh(500, &pot);
+  const bool pot_fresh = app_state_pot_fresh(500, &pot);
   can_bus_health_t bh = {0};
   uint32_t ca = 0, cf = 0;
   can_get_tx_stats(&ca, &cf);
@@ -89,24 +88,27 @@ static void ui_refresh_timer(lv_timer_t *t) {
   if (s_dbg_label == NULL) {
     return;
   }
-  if (lvgl_port_lock(100)) {
+  if (tdisplays3_display_lock(100)) {
     lv_label_set_text(s_dbg_label, s_ui_buf);
-    lvgl_port_unlock();
+    tdisplays3_display_unlock();
   }
 }
 
 void main_panel_ui_init(void) {
-  runtime_health_set_display(false);
-  lcd_init(&s_display, true);
-  if (s_display == NULL) {
-    ESP_LOGW(TAG_UI, "Display init failed — serial only");
+  app_state_set_display(false);
+  if (tdisplays3_init(&s_board) != ESP_OK) {
+    ESP_LOGW(TAG_UI, "tdisplays3_init failed — serial only");
     return;
   }
-  if (!lvgl_port_lock(200)) {
+  if (s_board.display == NULL) {
+    ESP_LOGW(TAG_UI, "Display handle null — serial only");
+    return;
+  }
+  if (!tdisplays3_display_lock(200)) {
     ESP_LOGW(TAG_UI, "LVGL display lock timeout — serial only");
     return;
   }
-  runtime_health_set_display(true);
+  app_state_set_display(true);
 
   lv_obj_t *scr = lv_screen_active();
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
@@ -115,17 +117,20 @@ void main_panel_ui_init(void) {
   s_dbg_label = lv_label_create(scr);
   if (s_dbg_label == NULL) {
     ESP_LOGW(TAG_UI, "Label create failed — display online without debug text");
-    lvgl_port_unlock();
+    tdisplays3_display_unlock();
     return;
   }
   lv_obj_set_style_text_color(s_dbg_label, lv_color_white(), LV_PART_MAIN);
   /* Keep default font as fallback if montserrat_20 is not linked. */
   lv_obj_set_style_text_font(s_dbg_label, LV_FONT_DEFAULT, LV_PART_MAIN);
-  lv_obj_set_width(s_dbg_label, 312);
+  {
+    const lv_coord_t hres = lv_display_get_horizontal_resolution(s_board.display);
+    lv_obj_set_width(s_dbg_label, hres > 4 ? hres - 4 : hres);
+  }
   lv_label_set_long_mode(s_dbg_label, LV_LABEL_LONG_WRAP);
   lv_obj_align(s_dbg_label, LV_ALIGN_TOP_LEFT, 4, 4);
   lv_label_set_text(s_dbg_label, "MAIN controller\nBooting...");
-  lvgl_port_unlock();
+  tdisplays3_display_unlock();
   ESP_LOGI(TAG_UI, "Display UI initialized");
 
   lv_timer_t *upd = lv_timer_create(ui_refresh_timer, 200, NULL);

@@ -4,17 +4,17 @@ menu "UWA Jetski — GPS (Neo-6M UART)"
         range 0 2
         default 1
 
+    config GPS_UART_BAUD
+        int "Baud rate"
+        default 9600
+
     config GPS_UART_RX_GPIO
-        int "GPS RX GPIO (connect to module TX)"
+        int "MCU RX GPIO — connect to Neo-6M TX"
         range 0 48
-        default 18
+        default 21
 
     config GPS_UART_TX_GPIO
-        int "GPS TX GPIO (connect to module RX, optional)"
-        range 0 48
-        default 17
-
-    config GPS_UART_BAUD
-        int "UART baud rate"
-        default 9600
+        int "MCU TX GPIO to Neo-6M RX, or -1 if not wired"
+        range -1 48
+        default -1
 endmenu

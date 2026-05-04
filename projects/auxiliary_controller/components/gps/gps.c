@@ -276,8 +276,11 @@ static void gps_uart_task(void *arg) {
 
   ESP_ERROR_CHECK(uart_driver_install(port, 4096, 0, 0, NULL, 0));
   ESP_ERROR_CHECK(uart_param_config(port, &uc));
-  ESP_ERROR_CHECK(uart_set_pin(port, CONFIG_GPS_UART_TX_GPIO, CONFIG_GPS_UART_RX_GPIO, UART_PIN_NO_CHANGE,
-                               UART_PIN_NO_CHANGE));
+  int tx_gpio = CONFIG_GPS_UART_TX_GPIO;
+  if (tx_gpio < 0) {
+    tx_gpio = UART_PIN_NO_CHANGE;
+  }
+  ESP_ERROR_CHECK(uart_set_pin(port, tx_gpio, CONFIG_GPS_UART_RX_GPIO, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
   uart_flush_input(port);
 
   char linebuf[176];
@@ -292,10 +295,13 @@ static void gps_uart_task(void *arg) {
       s_bytes_rx_total += (uint32_t)n;
       if (!logged_sample && s_bytes_rx_total > 120) {
         logged_sample = true;
-        ESP_LOGI(TAG,
-                 "UART%d RX active (Neo-6M baud %u). Wiring: MCU RX <-- module TX GPIO %d · MCU TX GPIO %d "
-                 "(optional)",
-                 (int)port, (unsigned)CONFIG_GPS_UART_BAUD, CONFIG_GPS_UART_RX_GPIO, CONFIG_GPS_UART_TX_GPIO);
+        if (CONFIG_GPS_UART_TX_GPIO < 0) {
+          ESP_LOGI(TAG, "UART%d RX GPIO %d active at %u baud (TX NC)", (int)port,
+                   CONFIG_GPS_UART_RX_GPIO, (unsigned)CONFIG_GPS_UART_BAUD);
+        } else {
+          ESP_LOGI(TAG, "UART%d RX GPIO %d TX GPIO %d at %u baud", (int)port, CONFIG_GPS_UART_RX_GPIO,
+                   CONFIG_GPS_UART_TX_GPIO, (unsigned)CONFIG_GPS_UART_BAUD);
+        }
       }
       for (int i = 0; i < n; i++) {
         char ch = (char)chunk[i];
@@ -323,8 +329,8 @@ static void gps_uart_task(void *arg) {
 
     const int64_t now = esp_timer_get_time();
     if (now - s_boot_us > (int64_t)12 * 1000000LL && s_nmea_frames == 0 && s_bytes_rx_total == 0) {
-      ESP_LOGW(TAG,
-               "GPS UART silence @%u baud · try CONFIG_GPS_UART_BAUD=38400 or swap MCU RX/Neo TX (GPIO RX=%d)",
+      ESP_LOGI(TAG,
+               "GPS UART silence @%u baud; try 38400 or swap MCU RX/Neo TX (GPIO RX=%d)",
                (unsigned)CONFIG_GPS_UART_BAUD, CONFIG_GPS_UART_RX_GPIO);
       s_boot_us = now + (int64_t)120 * 1000000LL;
     }
@@ -341,8 +347,9 @@ void gps_init(void) {
     s_mux = xSemaphoreCreateMutex();
   }
   xTaskCreate(gps_uart_task, "gps_uart", 8192, NULL, 5, NULL);
-  ESP_LOGI(TAG, "Neo-6M UART task (port %d, RX GPIO %d, %u baud) — NMEA via igrr/libnmea",
-           CONFIG_GPS_UART_PORT_NUM, CONFIG_GPS_UART_RX_GPIO, (unsigned)CONFIG_GPS_UART_BAUD);
+  ESP_LOGI(TAG, "GPS UART task port %d RX GPIO %d %u baud (TX %s)", CONFIG_GPS_UART_PORT_NUM,
+           CONFIG_GPS_UART_RX_GPIO, (unsigned)CONFIG_GPS_UART_BAUD,
+           (CONFIG_GPS_UART_TX_GPIO < 0) ? "NC" : "wired");
 }
 
 void gps_get_snapshot(int32_t *lat_e7, int32_t *lon_e7, int16_t *speed_kmh_x10, int16_t *heading_cdeg,

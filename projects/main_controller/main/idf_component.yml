@@ -5,5 +5,5 @@ dependencies:
   espressif/button: "^4.1.4"
   lvgl/lvgl: "^9"
   tdisplays3:
-    git: https://github.com/hiruna/esp-idf-t-display-s3.git
+    git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
     path: components/tdisplays3

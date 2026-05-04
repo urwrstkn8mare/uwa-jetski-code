@@ -2,11 +2,11 @@ menu "UWA Jetski — CAN configuration"
 
     config CANTX
         int "CAN transceiver TX GPIO pin"
-        default 17
+        default 12
 
     config CANRX
         int "CAN transceiver RX GPIO pin"
-        default 18
+        default 13
 
     config CAN_BITRATE
         int "CAN bitrate (bps)"

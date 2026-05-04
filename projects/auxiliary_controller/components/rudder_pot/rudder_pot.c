@@ -14,6 +14,7 @@ static const char *TAG = "rudder_pot";
 
 static adc_oneshot_unit_handle_t s_adc;
 static uint16_t s_last_pct;
+static int s_last_raw;
 
 static void pot_tx_task(void *arg) {
   (void)arg;
@@ -25,6 +26,7 @@ static void pot_tx_task(void *arg) {
       adc_unit_t u;
       if (adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &u, &ch) == ESP_OK) {
         if (adc_oneshot_read(s_adc, ch, &raw) == ESP_OK) {
+          s_last_raw = raw;
           int mn = CONFIG_POT_ADC_RAW_MIN;
           int mx = CONFIG_POT_ADC_RAW_MAX;
           int v = raw;
@@ -54,8 +56,16 @@ static void pot_tx_task(void *arg) {
 }
 
 esp_err_t rudder_pot_init(void) {
+  adc_channel_t ch;
+  adc_unit_t uu;
+  esp_err_t map_e = adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &uu, &ch);
+  if (map_e != ESP_OK) {
+    ESP_LOGW(TAG, "GPIO %d is not a valid ADC pin", CONFIG_POT_GPIO_NUM);
+    return map_e;
+  }
+
   adc_oneshot_unit_init_cfg_t acfg = {
-      .unit_id = (CONFIG_POT_ADC_UNIT == 2) ? ADC_UNIT_2 : ADC_UNIT_1,
+      .unit_id = uu,
       .clk_src = ADC_DIGI_CLK_SRC_DEFAULT,
   };
   esp_err_t err = adc_oneshot_new_unit(&acfg, &s_adc);
@@ -66,10 +76,8 @@ esp_err_t rudder_pot_init(void) {
       .bitwidth = ADC_BITWIDTH_DEFAULT,
       .atten = ADC_ATTEN_DB_12,
   };
-  adc_channel_t ch;
-  adc_unit_t uu;
-  if (adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &uu, &ch) != ESP_OK ||
-      adc_oneshot_config_channel(s_adc, ch, &chc) != ESP_OK) {
+  esp_err_t cfg_e = adc_oneshot_config_channel(s_adc, ch, &chc);
+  if (cfg_e != ESP_OK) {
     ESP_LOGW(TAG, "ADC channel config failed on GPIO %d", CONFIG_POT_GPIO_NUM);
     return ESP_FAIL;
   }
@@ -79,3 +87,5 @@ esp_err_t rudder_pot_init(void) {
 }
 
 uint16_t rudder_pot_get_last_pct(void) { return s_last_pct; }
+
+int rudder_pot_get_last_raw(void) { return s_last_raw; }

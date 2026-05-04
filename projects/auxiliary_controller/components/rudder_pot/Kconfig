@@ -1,13 +1,8 @@
-menu "UWA Jetski — Rudder potentiometer (ADC)"
-    config POT_ADC_UNIT
-        int "ADC unit (1 or 2 on ESP32-S3)"
-        range 1 2
-        default 1
-
+menu "UWA Jetski — Rudder potentiometer"
     config POT_GPIO_NUM
-        int "GPIO for ADC potentiometer"
+        int "ADC GPIO (rudder pot wiper)"
         range 1 48
-        default 1
+        default 18
 
     config POT_ADC_RAW_MIN
         int "Raw ADC at 0%%"
