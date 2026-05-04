@@ -2,25 +2,41 @@
 """Script that either activates idf.py monitor with the port defined in .serial_port automatically AND activates a PTY automatically as well"""
 
 import os
+import logging
 import pty
+import signal
 import tty
 import termios
 import time
 import argparse
-from pathlib import Path
 
 import sys
 import select
 
+from _project_cli import (
+    add_common_logging_arg,
+    add_project_arg,
+    ensure_idf_env,
+    load_serial_port,
+    resolve_project_paths,
+    setup_logging,
+)
+
 CTRL_BRACKET_R = b"\x1d"
+CTRL_C = b"\x03"
 
 
 def main():
     terminal_is_interactive = sys.stdin.isatty()
     parser = argparse.ArgumentParser(
-        "read_with_pty.py",
-        description="Create a PTY with idf.py monitor and print output. Runs for <timeout> seconds on port defined in .serial_port. Must run in the project directory with the ESP-IDF environment activated. Can also be used interactively like normal.",
+        "monitor.py",
+        description=(
+            "Create a PTY with idf.py monitor and print output. "
+            "Without -p/--project: project root targets itself."
+        ),
     )
+    add_project_arg(parser)
+    add_common_logging_arg(parser)
     parser.add_argument(
         "-t",
         "--timeout",
@@ -32,16 +48,27 @@ def main():
         "rest", nargs=argparse.REMAINDER, help="Gets passed to idf monitor command"
     )
     args = parser.parse_args()
+    setup_logging(args.verbose)
 
-    if os.environ.get("IDF_PATH") is None:
-        raise Exception("Not running is an ESP-IDF environment!")
+    ensure_idf_env()
+    project_dir = resolve_project_paths(
+        raw_project_values=args.project,
+        single_project_only=True,
+        operation_name="monitor",
+    )[0]
 
-    port = Path(".serial_port").read_text().strip()
+    port = load_serial_port(project_dir)
 
     pid, master_fd = pty.fork()
 
     if pid == 0:  # child proc
-        print(f"--- STARTING idf.py monitor on {port} for {args.timeout}s ---")
+        logging.info(
+            "[%s] Starting idf.py monitor on %s with timeout=%ss",
+            project_dir.name,
+            port,
+            args.timeout,
+        )
+        os.chdir(project_dir)
         os.execvp("idf.py", ["idf.py", "monitor", "-p", port, *args.rest])
     else:  # parent proc
         old_tty = None
@@ -69,8 +96,9 @@ def main():
 
                 # Check if the timer hit while we were blocking
                 if not sent_flag and args.timeout > 0 and time.time() >= trigger_time:
-                    print(
-                        f"--- SENDING STOP SIGNAL (CTRL-]) as {args.timeout}s timeout passed ---"
+                    logging.info(
+                        "Sending CTRL-] stop signal after timeout (%ss).",
+                        args.timeout,
                     )
                     os.write(master_fd, CTRL_BRACKET_R)
                     sent_flag = True
@@ -92,6 +120,13 @@ def main():
                     data = os.read(stdin_fd, 1024)
                     if not data:
                         break
+                    ctrl_c_index = data.find(CTRL_C)
+                    if ctrl_c_index != -1:
+                        if ctrl_c_index > 0:
+                            os.write(master_fd, data[:ctrl_c_index])
+                        logging.info("Ctrl+C received. Stopping monitor.")
+                        os.kill(pid, signal.SIGINT)
+                        break
                     os.write(master_fd, data)
 
         finally:
@@ -100,7 +135,7 @@ def main():
             os.close(master_fd)
             os.waitpid(pid, 0)
 
-    print("\n--- Done ---")
+    logging.info("Monitor session finished.")
 
 
 if __name__ == "__main__":
