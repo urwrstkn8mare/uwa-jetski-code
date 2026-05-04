@@ -1,4 +1,8 @@
 menu "UWA Jetski — ICM-20948 (I2C)"
+    config IMU_SKIP_HW
+        bool "Disable ICM-20948 hardware init"
+        default n
+
     config ICM_I2C_PORT_NUM
         int "I2C port number"
         range 0 1

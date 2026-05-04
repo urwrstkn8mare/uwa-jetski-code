@@ -258,6 +258,11 @@ static void imu_task(void *arg) {
 }
 
 esp_err_t imu_init(void) {
+#if CONFIG_IMU_SKIP_HW
+  ESP_LOGW(TAG, "IMU disabled by Kconfig (CONFIG_IMU_SKIP_HW)");
+  return ESP_FAIL;
+#endif
+
   static bool mutex_ready;
   if (!mutex_ready) {
     s_mutex = xSemaphoreCreateMutex();

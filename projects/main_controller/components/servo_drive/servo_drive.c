@@ -41,7 +41,7 @@ esp_err_t servo_drive_init(void) {
   }
 
   ledc_channel_config_t ch0 = {
-      .gpio_num = 1,
+      .gpio_num = CONFIG_SERVO1_GPIO,
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .channel = LEDC_CHANNEL_0,
       .intr_type = LEDC_INTR_DISABLE,
@@ -55,7 +55,7 @@ esp_err_t servo_drive_init(void) {
   }
 
   ledc_channel_config_t ch1 = {
-      .gpio_num = 2,
+      .gpio_num = CONFIG_SERVO2_GPIO,
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .channel = LEDC_CHANNEL_1,
       .intr_type = LEDC_INTR_DISABLE,
@@ -69,7 +69,8 @@ esp_err_t servo_drive_init(void) {
   }
 
   s_ready = true;
-  ESP_LOGI(TAG, "PWM servo outputs enabled: ch0->GPIO1 ch1->GPIO2 @ 50Hz");
+  ESP_LOGI(TAG, "PWM servo outputs enabled: ch0->GPIO%d ch1->GPIO%d @ 50Hz",
+           CONFIG_SERVO1_GPIO, CONFIG_SERVO2_GPIO);
   return ESP_OK;
 }
 

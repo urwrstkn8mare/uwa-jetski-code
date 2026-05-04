@@ -22,12 +22,14 @@ with a specifc purpose. Can simply look at the project's README to learn more.
 
 - `scripts`: Contains utility scripts for development. Run these directly or via the aliases provided by `activate_scripts.sh`:
   - `build.py`: Wrapper for `idf.py build`.
+  - `save_defconfig.py`: Wrapper for `idf.py save-defconfig`.
   - `clean.py`: Removes build artifacts.
   - `flash.py`: Wrapper for `idf.py flash` but uses serial port defined in `.serial_port`.
   - `monitor.py`: PTY wrapper for `idf.py monitor` but uses serial port defined in `.serial_port`.
   - `choose_port.py`: Interactive serial port selector that saves choice to a project's `.serial_port` (also can be non-interactive).
-  - `activate_scripts.sh`: Source this script (do NOT run it directly) to add the `scripts` directory to your PATH and create convenient aliases. Use `source ./activate_scripts.sh` from repo root. After this, you can use `build`, `clean`, `flash`, `monitor`, and `choose_port` directly without the `.py` extension.
-  - All scripts support `-p/--project` with a project name. For scripts that support multiple projects (`build`, `clean`, `flash`), pass multiple projects with repeated flags or comma-separated values.
+  - `activate_scripts.sh`: Source this script (do NOT run it directly) to add the `scripts` directory to your PATH and create convenient aliases. Use `source ./activate_scripts.sh` from repo root. After this, you can use `build`, `save_defconfig`, `clean`, `flash`, `monitor`, and `choose_port` directly without the `.py` extension.
+  - Shell tab-completion is installed by `activate_scripts.sh` for all script commands/aliases, including dynamic completion for `-p/--project` values.
+  - All scripts support `-p/--project` with a project name. For scripts that support multiple projects (`build`, `save_defconfig`, `clean`, `flash`), pass multiple projects with repeated flags or comma-separated values.
   - Script target selection rules:
     - From repo root (this directory): scripts that support multiple projects run for **all** projects when `-p/--project` is omitted.
     - From a project root (`projects/<name>`): scripts run for that project when `-p/--project` is omitted.
