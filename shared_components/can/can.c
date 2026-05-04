@@ -165,6 +165,12 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
     return ESP_ERR_INVALID_STATE;
   }
 
+#if CONFIG_CAN_SKIP_HW
+  (void)can_rx_cb;
+  ESP_LOGW(TAG, "CAN hardware disabled (CONFIG_CAN_SKIP_HW) — TWAI not started");
+  return ESP_FAIL;
+#endif
+
   s_given_can_rx_cb = can_rx_cb;
 
   s_free_frame_queue = xQueueCreate(CAN_FRAME_POOL_SIZE, sizeof(can_frame_buf_t *));
@@ -200,7 +206,12 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
       .io_cfg.rx = CONFIG_CANRX,
       .bit_timing.bitrate = CONFIG_CAN_BITRATE,
       .tx_queue_depth = CONFIG_CAN_TX_QUEUE_DEPTH,
+      /* Cap HW TX retries (not -1) to limit error traffic when the bus is marginal. */
+      .fail_retry_cnt = 4,
   };
+#if CONFIG_CAN_SELF_TEST
+  node_config.flags.enable_self_test = 1;
+#endif
   esp_err_t ret = twai_new_node_onchip(&node_config, &s_node_hdl);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "twai_new_node_onchip failed: %s", esp_err_to_name(ret));
@@ -255,8 +266,8 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
     }
   }
 
-  ESP_LOGI(TAG, "CAN initialised (bitrate=%d, queue=%d)", CONFIG_CAN_BITRATE,
-           CONFIG_CAN_TX_QUEUE_DEPTH);
+  ESP_LOGI(TAG, "CAN initialised (bitrate=%d, queue=%d, self_test=%d)", CONFIG_CAN_BITRATE,
+           CONFIG_CAN_TX_QUEUE_DEPTH, CONFIG_CAN_SELF_TEST);
   return ESP_OK;
 
 cleanup:

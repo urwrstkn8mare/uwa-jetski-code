@@ -1,7 +1,7 @@
 #include "aux_panel_ui.h"
 
-#include "esp_err.h"
 #include "can.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -18,6 +18,8 @@ static const char *TAG_UI = "aux_panel_ui";
 
 static tdisplays3_handle_t s_board;
 static lv_obj_t *s_lbl;
+/* Timer runs on the LVGL task (4 KiB stack in tdisplays3); keep format buffer off the stack. */
+static char s_ui_text_buf[1024];
 
 static bool wait_lvgl_display_lock_ms(uint32_t total_ms, uint32_t slice_ms) {
   uint32_t waited = 0;
@@ -69,9 +71,8 @@ static void ui_timer(lv_timer_t *t) {
 
   const char *can_label = (can_is_ready() && cw.controller_started) ? cw.state_label : "off";
 
-  char buf[1024];
   snprintf(
-      buf, sizeof(buf),
+      s_ui_text_buf, sizeof(s_ui_text_buf),
       "Pot %u%% (pin1)\n"
       "CAN %s T%u R%u b%" PRIu32 "\n"
       "txQ %" PRIu32 " fl%" PRIu32 "\n"
@@ -93,7 +94,7 @@ static void ui_timer(lv_timer_t *t) {
     return;
   }
   if (tdisplays3_display_lock(120)) {
-    lv_label_set_text(s_lbl, buf);
+    lv_label_set_text(s_lbl, s_ui_text_buf);
     tdisplays3_display_unlock();
   }
 }
@@ -114,7 +115,8 @@ void aux_panel_ui_init(void) {
   /* Montserrat 12: room for raw NMEA + UART stats on small panel */
   lv_obj_set_style_text_font(s_lbl, &lv_font_montserrat_12, LV_PART_MAIN);
   lv_obj_set_style_pad_all(s_lbl, 0, LV_PART_MAIN);
-  lv_obj_set_width(s_lbl, lv_display_get_horizontal_resolution(NULL) - 4);
+  lv_coord_t hres = lv_display_get_horizontal_resolution(s_board.display);
+  lv_obj_set_width(s_lbl, hres > 4 ? hres - 4 : hres);
   lv_label_set_long_mode(s_lbl, LV_LABEL_LONG_WRAP);
   lv_obj_align(s_lbl, LV_ALIGN_TOP_LEFT, 3, 3);
   lv_label_set_text(s_lbl,
