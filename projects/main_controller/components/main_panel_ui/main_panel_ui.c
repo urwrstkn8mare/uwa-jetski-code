@@ -50,15 +50,12 @@ static void ui_refresh_timer(lv_timer_t *t) {
 
   uint16_t pot = 50;
   const bool pot_fresh = app_state_pot_fresh(500, &pot);
-  can_bus_health_t bh = {0};
-  uint32_t ca = 0, cf = 0;
-  can_get_tx_stats(&ca, &cf);
   if (rh.can_ok && can_is_ready()) {
-    can_get_bus_health(&bh);
-    snprintf(s_can_line, sizeof(s_can_line), "CAN %s T%u R%u b%" PRIu32 " q%" PRIu32 " f%" PRIu32,
-             bh.state_label, (unsigned)bh.tx_error_count, (unsigned)bh.rx_error_count, bh.bus_error_events, ca, cf);
+    (void)can_snprintf_board_status(s_can_line, sizeof(s_can_line));
   } else {
-    strlcpy(s_can_line, "CAN off T0 R0 b0 q0 f0", sizeof(s_can_line));
+    snprintf(s_can_line, sizeof(s_can_line),
+             "CAN off Tx%u Rx%u (init skipped / TWAI down)",
+             (unsigned)CONFIG_CANTX, (unsigned)CONFIG_CANRX);
   }
 
   const char *imu_state = rh.imu_ok ? "ok" : "off";

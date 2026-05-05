@@ -38,4 +38,12 @@ menu "UWA Jetski — CAN configuration"
             is wired, or to avoid pin/peripheral conflicts. Application treats CAN as unavailable
             (same as failed init).
 
+    config CAN_STATUS_LOG_PERIOD_MS
+        int "Periodic CAN serial status log interval (ms, 0 disables)"
+        default 2500
+        range 0 600000
+        help
+            Emits one ESP-IDF log line summarising TWAI state, counters, pins, and TX queue totals.
+            Mirrors the readability of serial/debug output from bench CAN bring-up demos.
+
 endmenu

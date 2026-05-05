@@ -52,11 +52,8 @@ static void ui_timer(lv_timer_t *t) {
   uint8_t gga_q = 0;
   gps_get_snapshot(&la, &lo, &sp, &hd, &fix, &gga_q);
 
-  uint32_t ca = 0, cf = 0;
-  can_get_tx_stats(&ca, &cf);
-
-  can_bus_health_t cw = {0};
-  can_get_bus_health(&cw);
+  char can_status_line[144];
+  (void)can_snprintf_board_status(can_status_line, sizeof(can_status_line));
 
   unsigned sp_dec = (unsigned)labs((long)(sp % 10));
   unsigned hd_frac = (unsigned)labs((long)(hd % 100));
@@ -71,13 +68,10 @@ static void ui_timer(lv_timer_t *t) {
     snprintf(age_buf, sizeof(age_buf), "%" PRIu32 "ms", gd.ms_since_last_uart_line);
   }
 
-  const char *can_label = (can_is_ready() && cw.controller_started) ? cw.state_label : "off";
-
   snprintf(
       s_ui_text_buf, sizeof(s_ui_text_buf),
       "Pot %u%% raw %d [%d..%d]\n"
-      "CAN %s T%u R%u b%" PRIu32 "\n"
-      "txQ %" PRIu32 " fl%" PRIu32 "\n"
+      "%s\n"
       "fx%u gq%u st%u\n"
       "lat%ld lon%ld\n"
       "spd%u.%u hdg%d.%02u\n"
@@ -86,8 +80,8 @@ static void ui_timer(lv_timer_t *t) {
       " ok%" PRIu32 " x%" PRIu32 " %s\n"
       "%.100s\n"
       "%.100s",
-      pot, pot_raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX, can_label, (unsigned)cw.tx_error_count,
-      (unsigned)cw.rx_error_count, cw.bus_error_events, ca, cf, (unsigned)fix, (unsigned)gga_q,
+      pot, pot_raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX, can_status_line,
+      (unsigned)fix, (unsigned)gga_q,
       (unsigned)gd.sats_used_last_gga, (long)la, (long)lo, (unsigned)(sp / 10), sp_dec, hd_deg, hd_frac,
       (unsigned)gd.uart_baud, gd.uart_bytes_rx, gd.uart_lines_rx, gd.nmea_parse_ok, gd.nmea_parse_fail,
       age_buf, gd.last_sentence, gd.prev_sentence);

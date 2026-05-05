@@ -10,6 +10,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "can";
@@ -52,6 +53,7 @@ typedef struct {
 
 static QueueHandle_t s_rx_queue = NULL;
 static TaskHandle_t s_rx_task_hdl = NULL;
+static TaskHandle_t s_diag_task_hdl = NULL;
 
 /* Diagnostics */
 static uint32_t s_tx_attempts = 0;
@@ -155,6 +157,29 @@ static void can_rx_task(void *arg) {
     if (s_given_can_rx_cb != NULL) {
       s_given_can_rx_cb(msg.buffer, msg.id, msg.timestamp);
     }
+  }
+}
+
+static void can_diag_task(void *arg) {
+  (void)arg;
+  const TickType_t period = pdMS_TO_TICKS(CONFIG_CAN_STATUS_LOG_PERIOD_MS);
+  /* Stagger vs. startup banner printed in @ref can_init */
+  vTaskDelay(period);
+  for (;;) {
+    if (can_is_ready()) {
+      char line[144];
+      (void)can_snprintf_metrics_line(line, sizeof(line));
+      ESP_LOGI(TAG, "%s", line);
+    }
+    vTaskDelay(period);
+  }
+}
+
+static void can_diag_stop(void) {
+  if (s_diag_task_hdl != NULL) {
+    TaskHandle_t h = s_diag_task_hdl;
+    s_diag_task_hdl = NULL;
+    vTaskDelete(h);
   }
 }
 
@@ -271,11 +296,20 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
 #else
   const int self_test = 0;
 #endif
-  ESP_LOGI(TAG, "CAN initialised (bitrate=%d, queue=%d, self_test=%d)", CONFIG_CAN_BITRATE,
-           CONFIG_CAN_TX_QUEUE_DEPTH, self_test);
+  ESP_LOGI(TAG,
+           "TWAI up: Tx%u (MCU to transceiver DI) Rx%u (from RO); %dkbps; tx_queue_depth=%u; "
+           "self_test=%d",
+           (unsigned)CONFIG_CANTX, (unsigned)CONFIG_CANRX, CONFIG_CAN_BITRATE / 1000,
+           (unsigned)CONFIG_CAN_TX_QUEUE_DEPTH, self_test);
+  if (CONFIG_CAN_STATUS_LOG_PERIOD_MS > 0) {
+    if (xTaskCreate(can_diag_task, "can_diag", 3584, NULL, 3, &s_diag_task_hdl) != pdPASS) {
+      ESP_LOGW(TAG, "can_diag task not started (OOM?) — periodic status log disabled");
+    }
+  }
   return ESP_OK;
 
 cleanup:
+  can_diag_stop();
   if (s_tx_task_hdl != NULL) {
     vTaskDelete(s_tx_task_hdl);
     s_tx_task_hdl = NULL;
@@ -310,7 +344,7 @@ static void fmt_twai_state(twai_error_state_t state, char *dst, size_t dst_len) 
   const char *s = "?";
   switch (state) {
   case TWAI_ERROR_ACTIVE:
-    s = "ACTIVE";
+    s = "RUN";
     break;
   case TWAI_ERROR_WARNING:
     s = "WARN";
@@ -394,11 +428,45 @@ void can_get_tx_stats(uint32_t *attempts, uint32_t *failures) {
   }
 }
 
+int can_snprintf_metrics_line(char *dst, size_t dst_len) {
+  if (dst == NULL || dst_len == 0) {
+    return -1;
+  }
+  if (!can_is_ready()) {
+    return snprintf(dst, dst_len, "off Tx%u Rx%u txQ%" PRIu32 " fl%" PRIu32 "",
+                    (unsigned)CONFIG_CANTX, (unsigned)CONFIG_CANRX,
+                    (uint32_t)0, (uint32_t)0);
+  }
+  can_bus_health_t bh = {0};
+  can_get_bus_health(&bh);
+  uint32_t qa = 0, qf = 0;
+  can_get_tx_stats(&qa, &qf);
+  return snprintf(dst, dst_len, "%s Tx%u Rx%u TEC:%u REC:%u bus:%" PRIu32 " txQ%" PRIu32 " fl%" PRIu32 "",
+                  bh.controller_started ? bh.state_label : "DOWN",
+                  (unsigned)CONFIG_CANTX,
+                  (unsigned)CONFIG_CANRX,
+                  (unsigned)bh.tx_error_count,
+                  (unsigned)bh.rx_error_count,
+                  bh.bus_error_events,
+                  qa,
+                  qf);
+}
+
+int can_snprintf_board_status(char *dst, size_t dst_len) {
+  if (dst == NULL || dst_len == 0) {
+    return -1;
+  }
+  char inner[136];
+  (void)can_snprintf_metrics_line(inner, sizeof(inner));
+  return snprintf(dst, dst_len, "CAN %s", inner);
+}
+
 esp_err_t can_deinit(void) {
   if (s_node_hdl == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
 
+  can_diag_stop();
   if (s_tx_task_hdl != NULL) {
     vTaskDelete(s_tx_task_hdl);
     s_tx_task_hdl = NULL;

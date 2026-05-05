@@ -58,7 +58,6 @@ void app_main(void) {
     ESP_LOGE(TAG, "CAN init failed");
     return;
   }
-  ESP_LOGI(TAG, "CAN initialised, waiting for data...");
 
   ESP_ERROR_CHECK(ws_display_init());
   ESP_ERROR_CHECK(ws_display_lock(-1));

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "esp_err.h"
 
@@ -60,6 +61,19 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len);
  * @param[out] failures: Total transmission failures
  */
 void can_get_tx_stats(uint32_t *attempts, uint32_t *failures);
+
+/**
+ * @brief Format TWAI counters + pins + TX enqueue stats into one compact line (no \"CAN \" prefix).
+ *
+ * Typical output when running: RUN Tx12 Rx13 TEC:0 REC:0 bus_events:… q … f … .
+ * Intended for reuse in LVGL labels and periodic serial logs.
+ *
+ * @return Bytes written excluding the terminating NUL (like snprintf); <0 if dst invalid.
+ */
+int can_snprintf_metrics_line(char *dst, size_t dst_len);
+
+/** One-line label with \"CAN \" prefix suitable for dashboards (uses @ref can_snprintf_metrics_line). */
+int can_snprintf_board_status(char *dst, size_t dst_len);
 
 /**
  * @brief Deinitialise CAN (TWAI)

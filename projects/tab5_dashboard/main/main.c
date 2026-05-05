@@ -90,7 +90,6 @@ void app_main(void) {
     bsp_display_unlock();
     return;
   }
-  ESP_LOGI(TAG, "CAN initialised, waiting for data...");
 
   (void)lv_timer_create(dashboard_timer_cb, 50, &s_runtime);
   bsp_display_unlock();
