@@ -131,3 +131,21 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms) 
 }
 
 bool can_ui_bridge_got_frame(void) { return s_got_frame; }
+
+void can_ui_bridge_get_debug(can_ui_bridge_debug_t *out) {
+  if (out == NULL) {
+    return;
+  }
+  memset(out, 0, sizeof(*out));
+  if (s_mux == NULL || xSemaphoreTake(s_mux, pdMS_TO_TICKS(50)) != pdTRUE) {
+    return;
+  }
+  out->have_height = s_have_height;
+  out->have_servo = s_have_servo;
+  out->have_pot = s_have_pot;
+  out->height_cm = s_height_cm;
+  out->servo_a_deg = s_servo_a_deg;
+  out->servo_b_deg = s_servo_b_deg;
+  out->pot_pct = s_pot_pct;
+  xSemaphoreGive(s_mux);
+}

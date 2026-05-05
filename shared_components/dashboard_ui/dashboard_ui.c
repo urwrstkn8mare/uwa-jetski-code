@@ -1010,8 +1010,12 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
   }
 
   lv_display_t *disp = lv_display_get_default();
-  int32_t h_res = disp ? lv_display_get_horizontal_resolution(disp) : 1024;
-  int32_t v_res = disp ? lv_display_get_vertical_resolution(disp) : 600;
+  int32_t h_res = lv_obj_get_width(screen);
+  int32_t v_res = lv_obj_get_height(screen);
+  if (h_res <= 0 || v_res <= 0) {
+    h_res = disp ? lv_display_get_horizontal_resolution(disp) : 1024;
+    v_res = disp ? lv_display_get_vertical_resolution(disp) : 600;
+  }
 
   ESP_LOGI(TAG, "Display resolution: %dx%d", (int)h_res, (int)v_res);
 
