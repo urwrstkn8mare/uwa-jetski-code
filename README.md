@@ -4,6 +4,7 @@ This is the code for both the new and old hydrfoil jetski at UWA.
 
 ## TODO
 
+- [ ] Clean up components and dependency tree.
 - [ ] Upgrade all the v5 ESP-IDF projects to v6.
 
 ## Directories explained
