@@ -8,12 +8,6 @@ This is the code for both the new and old hydrfoil jetski at UWA.
 
 ## Directories explained
 
-- `esp-bsp`: A git submodule of `esp-bsp`'s `bsp/update_tab5` branch. Needed
-for a compatible version of the `m5stack_tab5` component until
-<https://github.com/espressif/esp-bsp/pull/765> is merged and released.
-  - When cloning use `git clone --recursive` to have submodules downloaded too.
-  - If already cloned, use `git submodule update --init --recursive`
-
 - `shared_components`: Stores components that may be used in one or more
 projects. These must be ***symlinked*** into the projects' `components` directory.
 
