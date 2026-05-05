@@ -1,33 +1,40 @@
-menu "UWA Jetski — ICM-20948 (I2C)"
+menu "IMU Settings"
     config IMU_SKIP_HW
         bool "Disable ICM-20948 hardware init"
         default n
 
-    config ICM_I2C_PORT_NUM
-        int "I2C port number"
+    config IMU_I2C_PORT
+        int "IMU I2C port"
         range 0 1
         default 0
-
-    config ICM_I2C_FREQ_HZ
-        int "I2C clock (Hz)"
-        range 10000 400000
-        default 100000
         help
-            Use 100k for bring-up stability. Increase only if wiring/pullups are known-good.
+            ESP-IDF I2C controller number used by the IMU component.
 
-    config ICM_I2C_SDA_GPIO
-        int "I2C SDA GPIO"
+    config IMU_I2C_SDA_GPIO
+        int "IMU I2C SDA GPIO"
         range 0 48
         default 16
+        help
+            SDA pin for the IMU I2C bus.
 
-    config ICM_I2C_SCL_GPIO
-        int "I2C SCL GPIO"
+    config IMU_I2C_SCL_GPIO
+        int "IMU I2C SCL GPIO"
         range 0 48
         default 21
-
-    config ICM_I2C_ADDR_AD1
-        bool "Use I2C address 0x69 (AD0 high)"
-        default y
         help
-            If n, address 0x68 is used (typical AD0 low).
+            SCL pin for the IMU I2C bus.
+
+    config IMU_I2C_FREQ_HZ
+        int "IMU I2C bus frequency (Hz)"
+        range 10000 1000000
+        default 400000
+        help
+            I2C clock frequency used for IMU communication.
+
+    config IMU_I2C_ADDRESS
+        hex "ICM20948 I2C address"
+        range 0x00 0x7F
+        default 0x69
+        help
+            I2C address of the ICM20948 device (usually 0x68 or 0x69).
 endmenu

@@ -7,16 +7,6 @@ dependencies:
       path: components/a02yyuw
       type: git
     version: ef554387861825a4eb2001d176154612082bcb04
-  cybergear-robotics/icm20948:
-    component_hash: 716f16b9546ba47575023d3b84306b2d5af0de7f62d0332078820923df14eed4
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=5.2'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 0.1.0
   espressif/button:
     component_hash: d0afa32f0e50d60bc0c6fc23f7eea98adc6b02cfe70b590bc52c23c506745287
     dependencies:
@@ -81,14 +71,24 @@ dependencies:
       path: components/tdisplays3
       type: git
     version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
+  urwrstkn8mare/icm20948:
+    component_hash: 47b79dad79c5eef8dba54962fcea2662e25def10e79c391a4f6ab83a81a9f0ec
+    dependencies:
+    - name: idf
+      version: '>=5.0'
+    source:
+      git: https://github.com/urwrstkn8mare/icm20948.git
+      path: .
+      type: git
+    version: 2291deea2040778b482cfd39a2f425b029330145
 direct_dependencies:
 - a02yyuw
-- cybergear-robotics/icm20948
 - espressif/button
 - espressif/esp_lvgl_port
 - idf
 - lvgl/lvgl
 - tdisplays3
-manifest_hash: 5e72370ad03adbe73df2adb0561285a3cb3eac33ec7308ece3ec646cfa913228
+- urwrstkn8mare/icm20948
+manifest_hash: 655c585b9b1374a123e5a64b54981188d01199e1097cbb1d20faa64a5b7ef9bf
 target: esp32s3
 version: 2.0.0
