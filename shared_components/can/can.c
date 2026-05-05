@@ -119,10 +119,9 @@ static void can_tx_task(void *arg) {
     if (req.len > 8) {
       req.len = 8;
     }
+    memset(fb->buffer, 0, sizeof(fb->buffer));
     if (req.len > 0) {
       memcpy(fb->buffer, req.data, req.len);
-    } else {
-      memset(fb->buffer, 0, sizeof(fb->buffer));
     }
     fb->frame.header = (twai_frame_header_t){
         .id = req.id,

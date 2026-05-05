@@ -9,9 +9,13 @@ typedef struct {
   bool have_height;
   bool have_servo;
   bool have_pot;
+  bool have_attitude;
   int16_t height_cm;
   int16_t servo_a_deg;
   int16_t servo_b_deg;
+  int16_t pitch_deg;
+  int16_t roll_deg;
+  int16_t yaw_deg;
   uint16_t pot_pct;
 } can_ui_bridge_debug_t;
 

@@ -69,13 +69,15 @@ static void task_loop(void *arg) {
 
     if (can_is_ready()) {
       if (st.imu_ok) {
-        float pitch = 0, roll = 0;
-        if (imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
+        float pitch = 0, roll = 0, yaw = 0;
+        if (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
           int16_t pi = (int16_t)lroundf(pitch);
           int16_t ri = (int16_t)lroundf(roll);
-          uint8_t att[4];
+          int16_t yi = (int16_t)lroundf(yaw);
+          uint8_t att[6];
           memcpy(att, &pi, 2);
           memcpy(att + 2, &ri, 2);
+          memcpy(att + 4, &yi, 2);
           (void)can_tx(CAN_ID_ATTITUDE, att, sizeof(att));
         }
       }

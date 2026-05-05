@@ -22,7 +22,7 @@ static tdisplays3_handle_t s_board;
 static lv_obj_t *s_dbg_label;
 
 /* taskLVGL runs this timer only on that task — static scratch avoids stack churn. */
-static char s_pr_line[40];
+static char s_pr_line[56];
 static char s_h_line[40];
 static char s_servo_line[40];
 static char s_can_line[64];
@@ -33,11 +33,11 @@ static void ui_refresh_timer(lv_timer_t *t) {
   app_state_t rh;
   app_state_get(&rh);
 
-  float pitch = 0, roll = 0;
-  if (rh.imu_ok && imu_get_pitch_roll(&pitch, &roll) == ESP_OK) {
-    snprintf(s_pr_line, sizeof(s_pr_line), "P:%.1f R:%.1f deg", (double)pitch, (double)roll);
+  float pitch = 0, roll = 0, yaw = 0;
+  if (rh.imu_ok && imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
+    snprintf(s_pr_line, sizeof(s_pr_line), "P:%.1f R:%.1f Y:%.1f deg", (double)pitch, (double)roll, (double)yaw);
   } else {
-    strlcpy(s_pr_line, "P/R: --- (IMU off)", sizeof(s_pr_line));
+    strlcpy(s_pr_line, "P/R/Y: --- (IMU off)", sizeof(s_pr_line));
   }
 
   int32_t hcm = -1;

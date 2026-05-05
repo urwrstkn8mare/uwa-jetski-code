@@ -61,12 +61,13 @@ static void dashboard_timer_cb(lv_timer_t *timer) {
     can_ui_bridge_get_debug(&dbg);
     (void)can_snprintf_metrics_line(can_line, sizeof(can_line));
     snprintf(can_strip_text, sizeof(can_strip_text),
-             "%s | H:%s%" PRId16 "cm Rud:%s%u%% Elv:%s%" PRId16 "/%" PRId16,
+             "%s | H:%s%" PRId16 "cm Rud:%s%u%% Elv:%s%" PRId16 "/%" PRId16 " Y:%s%" PRId16,
              can_line,
              dbg.have_height ? "" : "--", dbg.have_height ? dbg.height_cm : 0,
              dbg.have_pot ? "" : "--", dbg.have_pot ? (unsigned)dbg.pot_pct : 0u,
              dbg.have_servo ? "" : "--", dbg.have_servo ? dbg.servo_a_deg : 0,
-             dbg.have_servo ? dbg.servo_b_deg : 0);
+             dbg.have_servo ? dbg.servo_b_deg : 0,
+             dbg.have_attitude ? "" : "--", dbg.have_attitude ? dbg.yaw_deg : 0);
     lv_label_set_text(runtime->can_strip, can_strip_text);
   }
 }

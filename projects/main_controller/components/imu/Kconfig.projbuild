@@ -11,12 +11,12 @@ menu "UWA Jetski — ICM-20948 (I2C)"
     config ICM_I2C_SDA_GPIO
         int "I2C SDA GPIO"
         range 0 48
-        default 43
+        default 16
 
     config ICM_I2C_SCL_GPIO
         int "I2C SCL GPIO"
         range 0 48
-        default 44
+        default 21
 
     config ICM_I2C_ADDR_AD1
         bool "Use I2C address 0x69 (AD0 high)"

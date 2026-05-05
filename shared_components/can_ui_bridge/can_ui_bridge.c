@@ -10,6 +10,7 @@ static bool s_got_frame;
 
 static int16_t s_pitch_deg;
 static int16_t s_roll_deg;
+static int16_t s_yaw_deg;
 static int16_t s_height_cm;
 static int16_t s_servo_a_deg;
 static int16_t s_servo_b_deg;
@@ -42,9 +43,10 @@ void can_ui_bridge_on_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t t
 
   switch (header_id) {
   case CAN_ID_ATTITUDE:
-    if (sizeof(int16_t) * 2 <= 8) {
+    if (sizeof(int16_t) * 3 <= 8) {
       memcpy(&s_pitch_deg, &buffer[0], sizeof(s_pitch_deg));
       memcpy(&s_roll_deg, &buffer[2], sizeof(s_roll_deg));
+      memcpy(&s_yaw_deg, &buffer[4], sizeof(s_yaw_deg));
       s_have_attitude = true;
     }
     break;
@@ -101,6 +103,13 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms) 
   if (s_have_attitude) {
     data->pitch_deg = s_pitch_deg;
     data->roll_deg = s_roll_deg;
+    {
+      int32_t h = s_yaw_deg % 360;
+      if (h < 0) {
+        h += 360;
+      }
+      data->heading_deg = h;
+    }
   }
   if (s_have_height) {
     data->height_cm = s_height_cm;
@@ -115,14 +124,16 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms) 
   }
   if (s_have_gps_vel) {
     data->speed_kmh = s_speed_kmh_x10 / 10;
-    int32_t h = s_heading_cdeg / 100;
-    if (h < 0) {
-      h += 360;
+    if (!s_have_attitude) {
+      int32_t h = s_heading_cdeg / 100;
+      if (h < 0) {
+        h += 360;
+      }
+      if (h >= 360) {
+        h %= 360;
+      }
+      data->heading_deg = h;
     }
-    if (h >= 360) {
-      h %= 360;
-    }
-    data->heading_deg = h;
   }
   (void)s_lat_e7;
   (void)s_lon_e7;
@@ -143,9 +154,13 @@ void can_ui_bridge_get_debug(can_ui_bridge_debug_t *out) {
   out->have_height = s_have_height;
   out->have_servo = s_have_servo;
   out->have_pot = s_have_pot;
+  out->have_attitude = s_have_attitude;
   out->height_cm = s_height_cm;
   out->servo_a_deg = s_servo_a_deg;
   out->servo_b_deg = s_servo_b_deg;
+  out->pitch_deg = s_pitch_deg;
+  out->roll_deg = s_roll_deg;
+  out->yaw_deg = s_yaw_deg;
   out->pot_pct = s_pot_pct;
   xSemaphoreGive(s_mux);
 }

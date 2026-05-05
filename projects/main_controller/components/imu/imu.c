@@ -26,6 +26,7 @@ static const char *TAG = "imu";
 static SemaphoreHandle_t s_mutex;
 static float s_pitch;
 static float s_roll;
+static float s_yaw;
 static bool s_ready;
 static bool s_failed;
 /** Worker task is running until it exits via failure (successful path loops forever). */
@@ -40,9 +41,10 @@ static icm0948_config_i2c_t s_icm_i2c = {
     .i2c_addr = ICM_20948_I2C_ADDR_AD0,
 };
 
-static void quat_to_pitch_roll(float w, float x, float y, float z, float *pitch, float *roll) {
+static void quat_to_pitch_roll_yaw(float w, float x, float y, float z, float *pitch, float *roll, float *yaw) {
   *pitch = asinf(-2.0f * (x * z - w * y)) * 180.0f / (float)M_PI;
   *roll = atan2f(2.0f * (w * x + y * z), w * w - x * x - y * y + z * z) * 180.0f / (float)M_PI;
+  *yaw = atan2f(2.0f * (w * z + x * y), w * w + x * x - y * y - z * z) * 180.0f / (float)M_PI;
 }
 
 static void quat_mul(const float a[4], const float b[4], float out[4]) {
@@ -236,12 +238,13 @@ static void imu_task(void *arg) {
         float q_rel[4];
         quat_relative(s_qz, q_cur, q_rel);
 
-        float pitch, roll;
-        quat_to_pitch_roll(q_rel[0], q_rel[1], q_rel[2], q_rel[3], &pitch, &roll);
+        float pitch, roll, yaw;
+        quat_to_pitch_roll_yaw(q_rel[0], q_rel[1], q_rel[2], q_rel[3], &pitch, &roll, &yaw);
 
         if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
           s_pitch = pitch;
           s_roll = roll;
+          s_yaw = yaw;
           xSemaphoreGive(s_mutex);
         }
 
@@ -302,7 +305,7 @@ esp_err_t imu_init(void) {
   return ESP_OK;
 }
 
-esp_err_t imu_get_pitch_roll(float *pitch, float *roll) {
+esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
   if (!s_ready) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -314,6 +317,13 @@ esp_err_t imu_get_pitch_roll(float *pitch, float *roll) {
   }
   *pitch = s_pitch;
   *roll = s_roll;
+  if (yaw != NULL) {
+    *yaw = s_yaw;
+  }
   xSemaphoreGive(s_mutex);
   return ESP_OK;
+}
+
+esp_err_t imu_get_pitch_roll(float *pitch, float *roll) {
+  return imu_get_pitch_roll_yaw(pitch, roll, NULL);
 }

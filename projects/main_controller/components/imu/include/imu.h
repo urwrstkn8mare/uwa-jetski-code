@@ -21,3 +21,13 @@ esp_err_t imu_init(void);
  * @return ESP_OK on success, ESP_FAIL if not initialized.
  */
 esp_err_t imu_get_pitch_roll(float *pitch, float *roll);
+
+/**
+ * @brief Get pitch/roll/yaw from the DMP orientation quaternion (relative to zero).
+ *
+ * @param[out] pitch Degrees of pitch relative to zero.
+ * @param[out] roll  Degrees of roll relative to zero.
+ * @param[out] yaw   Degrees of yaw relative to zero.
+ * @return ESP_OK on success, ESP_FAIL if not initialized.
+ */
+esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw);
