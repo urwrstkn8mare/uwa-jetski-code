@@ -8,6 +8,13 @@ menu "UWA Jetski — ICM-20948 (I2C)"
         range 0 1
         default 0
 
+    config ICM_I2C_FREQ_HZ
+        int "I2C clock (Hz)"
+        range 10000 400000
+        default 100000
+        help
+            Use 100k for bring-up stability. Increase only if wiring/pullups are known-good.
+
     config ICM_I2C_SDA_GPIO
         int "I2C SDA GPIO"
         range 0 48
@@ -20,7 +27,7 @@ menu "UWA Jetski — ICM-20948 (I2C)"
 
     config ICM_I2C_ADDR_AD1
         bool "Use I2C address 0x69 (AD0 high)"
-        default n
+        default y
         help
             If n, address 0x68 is used (typical AD0 low).
 endmenu

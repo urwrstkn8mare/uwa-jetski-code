@@ -41,6 +41,53 @@ static icm0948_config_i2c_t s_icm_i2c = {
     .i2c_addr = ICM_20948_I2C_ADDR_AD0,
 };
 
+static esp_err_t imu_install_i2c(gpio_num_t sda_gpio, gpio_num_t scl_gpio) {
+  s_i2c_cfg.mode = I2C_MODE_MASTER;
+  s_i2c_cfg.sda_io_num = sda_gpio;
+  s_i2c_cfg.sda_pullup_en = GPIO_PULLUP_ENABLE;
+  s_i2c_cfg.scl_io_num = scl_gpio;
+  s_i2c_cfg.scl_pullup_en = GPIO_PULLUP_ENABLE;
+  s_i2c_cfg.master.clk_speed = CONFIG_ICM_I2C_FREQ_HZ;
+  s_i2c_cfg.clk_flags = I2C_SCLK_SRC_FLAG_FOR_NOMAL;
+
+  esp_err_t er = i2c_param_config(s_icm_i2c.i2c_port, &s_i2c_cfg);
+  if (er != ESP_OK) {
+    return er;
+  }
+  return i2c_driver_install(s_icm_i2c.i2c_port, s_i2c_cfg.mode, 0, 0, 0);
+}
+
+static bool imu_try_addr(icm20948_device_t *icm, uint8_t addr) {
+  s_icm_i2c.i2c_addr = addr;
+  icm20948_init_i2c(icm, &s_icm_i2c);
+  ESP_LOGI(TAG, "Probing ICM-20948 on I2C port %d SDA=%d SCL=%d addr=0x%02x",
+           (int)s_icm_i2c.i2c_port, (int)CONFIG_ICM_I2C_SDA_GPIO, (int)CONFIG_ICM_I2C_SCL_GPIO, addr);
+
+  int id_pass = 0;
+  while (icm20948_check_id(icm) != ICM_20948_STAT_OK) {
+    if (++id_pass >= ICM_MAX_CHECK_ID_ROUNDS) {
+      ESP_LOGW(TAG, "check id failed at 0x%02x (%d/%d)", addr, id_pass, ICM_MAX_CHECK_ID_ROUNDS);
+      return false;
+    }
+    ESP_LOGW(TAG, "check id failed at 0x%02x, retry (%d/%d)", addr, id_pass, ICM_MAX_CHECK_ID_ROUNDS);
+    vTaskDelay(pdMS_TO_TICKS(500));
+  }
+
+  uint8_t whoami = 0;
+  int who_pass = 0;
+  while (icm20948_get_who_am_i(icm, &whoami) != ICM_20948_STAT_OK || whoami != ICM_20948_WHOAMI) {
+    if (++who_pass >= ICM_MAX_WHOAMI_ROUNDS) {
+      ESP_LOGW(TAG, "WHOAMI bad at 0x%02x: 0x%02x", addr, whoami);
+      return false;
+    }
+    ESP_LOGW(TAG, "WHOAMI mismatch at 0x%02x (0x%02x), retry", addr, whoami);
+    vTaskDelay(pdMS_TO_TICKS(200));
+  }
+
+  ESP_LOGI(TAG, "ICM-20948 detected at 0x%02x", addr);
+  return true;
+}
+
 static void quat_to_pitch_roll_yaw(float w, float x, float y, float z, float *pitch, float *roll, float *yaw) {
   *pitch = asinf(-2.0f * (x * z - w * y)) * 180.0f / (float)M_PI;
   *roll = atan2f(2.0f * (w * x + y * z), w * w - x * x - y * y + z * z) * 180.0f / (float)M_PI;
@@ -81,16 +128,40 @@ static void quat_relative(const float q_ref[4], const float q_cur[4], float out[
 }
 
 static bool init_dmp(icm20948_device_t *icm) {
-  bool ok = true;
-  ok &= (icm20948_init_dmp_sensor_with_defaults(icm) == ICM_20948_STAT_OK);
-  ok &= (inv_icm20948_enable_dmp_sensor(icm, INV_ICM20948_SENSOR_ORIENTATION, 1) == ICM_20948_STAT_OK);
-  ok &= (inv_icm20948_set_dmp_sensor_period(icm, DMP_ODR_Reg_Quat9, 0) == ICM_20948_STAT_OK);
-  ok &= (icm20948_enable_fifo(icm, true) == ICM_20948_STAT_OK);
-  ok &= (icm20948_enable_dmp(icm, 1) == ICM_20948_STAT_OK);
-  ok &= (icm20948_reset_dmp(icm) == ICM_20948_STAT_OK);
-  ok &= (icm20948_reset_fifo(icm) == ICM_20948_STAT_OK);
-  if (!ok) {
-    ESP_LOGE(TAG, "DMP configuration failed");
+  icm20948_status_e st = ICM_20948_STAT_OK;
+  st = icm20948_init_dmp_sensor_with_defaults(icm);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: init_dmp_sensor_with_defaults=%d", (int)st);
+    return false;
+  }
+  st = inv_icm20948_enable_dmp_sensor(icm, INV_ICM20948_SENSOR_ORIENTATION, 1);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: enable_orientation_sensor=%d", (int)st);
+    return false;
+  }
+  st = inv_icm20948_set_dmp_sensor_period(icm, DMP_ODR_Reg_Quat9, 0);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: set_quat9_period=%d", (int)st);
+    return false;
+  }
+  st = icm20948_enable_fifo(icm, true);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: enable_fifo=%d", (int)st);
+    return false;
+  }
+  st = icm20948_enable_dmp(icm, 1);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: enable_dmp=%d", (int)st);
+    return false;
+  }
+  st = icm20948_reset_dmp(icm);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: reset_dmp=%d", (int)st);
+    return false;
+  }
+  st = icm20948_reset_fifo(icm);
+  if (st != ICM_20948_STAT_OK) {
+    ESP_LOGE(TAG, "DMP step failed: reset_fifo=%d", (int)st);
     return false;
   }
   ESP_LOGI(TAG, "DMP enabled (Quat9 orientation)");
@@ -103,66 +174,58 @@ static void imu_task(void *arg) {
   s_imu_task_alive = true;
 
   s_icm_i2c.i2c_port = (i2c_port_t)CONFIG_ICM_I2C_PORT_NUM;
+  const uint8_t pref_addr =
 #ifdef CONFIG_ICM_I2C_ADDR_AD1
-  s_icm_i2c.i2c_addr = ICM_20948_I2C_ADDR_AD1;
+      ICM_20948_I2C_ADDR_AD1;
 #else
-  s_icm_i2c.i2c_addr = ICM_20948_I2C_ADDR_AD0;
+      ICM_20948_I2C_ADDR_AD0;
 #endif
 
-  s_i2c_cfg.mode = I2C_MODE_MASTER;
-  s_i2c_cfg.sda_io_num = (gpio_num_t)CONFIG_ICM_I2C_SDA_GPIO;
-  s_i2c_cfg.sda_pullup_en = GPIO_PULLUP_ENABLE;
-  s_i2c_cfg.scl_io_num = (gpio_num_t)CONFIG_ICM_I2C_SCL_GPIO;
-  s_i2c_cfg.scl_pullup_en = GPIO_PULLUP_ENABLE;
-  s_i2c_cfg.master.clk_speed = 400000;
-  s_i2c_cfg.clk_flags = I2C_SCLK_SRC_FLAG_FOR_NOMAL;
-
-  esp_err_t er = i2c_param_config(s_icm_i2c.i2c_port, &s_i2c_cfg);
+  esp_err_t er = imu_install_i2c((gpio_num_t)CONFIG_ICM_I2C_SDA_GPIO, (gpio_num_t)CONFIG_ICM_I2C_SCL_GPIO);
   if (er != ESP_OK) {
-    ESP_LOGE(TAG, "i2c_param_config failed: %s", esp_err_to_name(er));
-    s_imu_task_alive = false;
-    s_failed = true;
-    vTaskDelete(NULL);
-    return;
-  }
-  er = i2c_driver_install(s_icm_i2c.i2c_port, s_i2c_cfg.mode, 0, 0, 0);
-  if (er != ESP_OK) {
-    ESP_LOGE(TAG, "i2c_driver_install failed: %s", esp_err_to_name(er));
+    ESP_LOGE(TAG, "i2c install failed on SDA=%d SCL=%d: %s",
+             (int)CONFIG_ICM_I2C_SDA_GPIO, (int)CONFIG_ICM_I2C_SCL_GPIO, esp_err_to_name(er));
     s_imu_task_alive = false;
     s_failed = true;
     vTaskDelete(NULL);
     return;
   }
 
-  icm20948_init_i2c(&s_icm, &s_icm_i2c);
-
-  int id_pass = 0;
-  while (icm20948_check_id(&s_icm) != ICM_20948_STAT_OK) {
-    if (++id_pass >= ICM_MAX_CHECK_ID_ROUNDS) {
-      ESP_LOGW(TAG, "ICM-20948 not responding on I2C — IMU path disabled");
-      (void)i2c_driver_delete(s_icm_i2c.i2c_port);
-      s_imu_task_alive = false;
-      s_failed = true;
-      vTaskDelete(NULL);
-      return;
-    }
-    ESP_LOGW(TAG, "check id failed, retry (%d/%d)", id_pass, ICM_MAX_CHECK_ID_ROUNDS);
-    vTaskDelay(pdMS_TO_TICKS(500));
+  bool found = imu_try_addr(&s_icm, pref_addr);
+  if (!found) {
+    const uint8_t alt_addr =
+        (pref_addr == ICM_20948_I2C_ADDR_AD0) ? ICM_20948_I2C_ADDR_AD1 : ICM_20948_I2C_ADDR_AD0;
+    found = imu_try_addr(&s_icm, alt_addr);
   }
-
-  uint8_t whoami = 0;
-  int who_pass = 0;
-  while (icm20948_get_who_am_i(&s_icm, &whoami) != ICM_20948_STAT_OK || whoami != ICM_20948_WHOAMI) {
-    if (++who_pass >= ICM_MAX_WHOAMI_ROUNDS) {
-      ESP_LOGW(TAG, "ICM-20948 WHOAMI bad (0x%02x) — IMU path disabled", whoami);
+  if (!found) {
+    /* Wiring sanity fallback: try swapped pins once and log the outcome clearly. */
+    (void)i2c_driver_delete(s_icm_i2c.i2c_port);
+    const gpio_num_t swap_sda = (gpio_num_t)CONFIG_ICM_I2C_SCL_GPIO;
+    const gpio_num_t swap_scl = (gpio_num_t)CONFIG_ICM_I2C_SDA_GPIO;
+    ESP_LOGW(TAG, "No IMU on SDA=%d SCL=%d, trying swapped SDA=%d SCL=%d once",
+             (int)CONFIG_ICM_I2C_SDA_GPIO, (int)CONFIG_ICM_I2C_SCL_GPIO, (int)swap_sda, (int)swap_scl);
+    er = imu_install_i2c(swap_sda, swap_scl);
+    if (er == ESP_OK) {
+      found = imu_try_addr(&s_icm, pref_addr);
+      if (!found) {
+        const uint8_t alt_addr =
+            (pref_addr == ICM_20948_I2C_ADDR_AD0) ? ICM_20948_I2C_ADDR_AD1 : ICM_20948_I2C_ADDR_AD0;
+        found = imu_try_addr(&s_icm, alt_addr);
+      }
+      if (found) {
+        ESP_LOGW(TAG, "IMU only responded on swapped pins; check SDA/SCL wiring");
+      }
+    } else {
+      ESP_LOGW(TAG, "Swapped-pin I2C install failed: %s", esp_err_to_name(er));
+    }
+    if (!found) {
+      ESP_LOGW(TAG, "ICM-20948 not responding on I2C (checked both addresses and swapped pins) — IMU path disabled");
       (void)i2c_driver_delete(s_icm_i2c.i2c_port);
       s_imu_task_alive = false;
       s_failed = true;
       vTaskDelete(NULL);
       return;
     }
-    ESP_LOGW(TAG, "WHOAMI mismatch (0x%02x) retry", whoami);
-    vTaskDelay(pdMS_TO_TICKS(200));
   }
 
   icm20948_sw_reset(&s_icm);
@@ -182,8 +245,20 @@ static void imu_task(void *arg) {
   icm20948_sleep(&s_icm, false);
   icm20948_low_power(&s_icm, false);
 
-  if (!init_dmp(&s_icm)) {
-    ESP_LOGW(TAG, "DMP setup failed — IMU path disabled");
+  bool dmp_ok = false;
+  for (int dmp_attempt = 1; dmp_attempt <= 3; dmp_attempt++) {
+    if (dmp_attempt > 1) {
+      ESP_LOGW(TAG, "Retrying DMP setup (%d/3)", dmp_attempt);
+      icm20948_sw_reset(&s_icm);
+      vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    if (init_dmp(&s_icm)) {
+      dmp_ok = true;
+      break;
+    }
+  }
+  if (!dmp_ok) {
+    ESP_LOGW(TAG, "DMP setup failed after retries — IMU path disabled");
     (void)i2c_driver_delete(s_icm_i2c.i2c_port);
     s_imu_task_alive = false;
     s_failed = true;

@@ -23,10 +23,10 @@ static lv_obj_t *s_dbg_label;
 
 /* taskLVGL runs this timer only on that task — static scratch avoids stack churn. */
 static char s_pr_line[56];
-static char s_h_line[40];
-static char s_servo_line[40];
-static char s_can_line[64];
-static char s_ui_buf[320];
+static char s_h_line[48];
+static char s_servo_line[48];
+static char s_can_line[96];
+static char s_ui_buf[512];
 
 static void ui_refresh_timer(lv_timer_t *t) {
   (void)t;
@@ -122,9 +122,10 @@ void main_panel_ui_init(void) {
   lv_obj_set_style_text_font(s_dbg_label, LV_FONT_DEFAULT, LV_PART_MAIN);
   {
     const lv_coord_t hres = lv_display_get_horizontal_resolution(s_board.display);
-    lv_obj_set_width(s_dbg_label, hres > 4 ? hres - 4 : hres);
+    lv_obj_set_width(s_dbg_label, hres > 8 ? hres - 8 : hres);
   }
   lv_label_set_long_mode(s_dbg_label, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_line_space(s_dbg_label, 2, LV_PART_MAIN);
   lv_obj_align(s_dbg_label, LV_ALIGN_TOP_LEFT, 4, 4);
   lv_label_set_text(s_dbg_label, "MAIN controller\nBooting...");
   tdisplays3_display_unlock();
