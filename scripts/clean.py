@@ -13,14 +13,8 @@ from _project_cli import (
     setup_logging,
 )
 
-DEFAULT_DELETE = [
-    "build",
-    "build.clang",
-    "managed_components",
-    ".cache",
-    ".serial_port",
-]
-FORCE_DELETE = ["sdkconfig", "sdkconfig.old"]
+DEFAULT_DELETE = ["build", "build.clang", "managed_components", ".cache", "sdkconfig"]
+FORCE_DELETE = ["sdkconfig.old", ".serial_port"]
 
 
 def main():
