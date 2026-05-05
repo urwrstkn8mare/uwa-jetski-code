@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "dashboard_ui.h"
@@ -28,3 +29,5 @@ void can_ui_bridge_merge_demo(dashboard_data_t *data, uint32_t demo_elapsed_ms);
 bool can_ui_bridge_got_frame(void);
 
 void can_ui_bridge_get_debug(can_ui_bridge_debug_t *out);
+
+size_t can_ui_bridge_snprintf_status(char *buffer, size_t len);

@@ -1,6 +1,7 @@
 #include "tab5_bringup.h"
 
 #include "bsp/m5stack_tab5.h"
+#include "display/lv_display.h"
 #include "esp_log.h"
 #include "esp_io_expander.h"
 
@@ -39,7 +40,7 @@ esp_err_t tab5_bringup_init(lv_display_t **out_display) {
   cfg.lvgl_port_cfg.task_stack = 24576;
 
   lv_display_t *disp = bsp_display_start_with_config(&cfg);
-  bsp_display_rotate(disp, LV_DISPLAY_ROTATION_270);
+  bsp_display_rotate(disp, LV_DISPLAY_ROTATION_90);
   bsp_display_backlight_on();
 
   bsp_feature_enable(BSP_FEATURE_SPEAKER, false);

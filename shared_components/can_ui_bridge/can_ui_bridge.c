@@ -1,8 +1,11 @@
 #include "can_ui_bridge.h"
 
+#include "can.h"
 #include "can_ids.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 static SemaphoreHandle_t s_mux;
@@ -163,4 +166,25 @@ void can_ui_bridge_get_debug(can_ui_bridge_debug_t *out) {
   out->yaw_deg = s_yaw_deg;
   out->pot_pct = s_pot_pct;
   xSemaphoreGive(s_mux);
+}
+
+size_t can_ui_bridge_snprintf_status(char *buffer, size_t len) {
+  if (buffer == NULL || len == 0) {
+    return 0;
+  }
+
+  char can_line[128];
+  can_ui_bridge_debug_t dbg = {0};
+  can_ui_bridge_get_debug(&dbg);
+  (void)can_snprintf_metrics_line(can_line, sizeof(can_line));
+
+  int written = snprintf(buffer, len,
+                         "%s | H:%s%" PRId16 "cm Rud:%s%u%% Elv:%s%" PRId16 "/%" PRId16 " Y:%s%" PRId16,
+                         can_line,
+                         dbg.have_height ? "" : "--", dbg.have_height ? dbg.height_cm : 0,
+                         dbg.have_pot ? "" : "--", dbg.have_pot ? (unsigned)dbg.pot_pct : 0u,
+                         dbg.have_servo ? "" : "--", dbg.have_servo ? dbg.servo_a_deg : 0,
+                         dbg.have_servo ? dbg.servo_b_deg : 0,
+                         dbg.have_attitude ? "" : "--", dbg.have_attitude ? dbg.yaw_deg : 0);
+  return (written > 0) ? (size_t)written : 0;
 }

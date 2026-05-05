@@ -732,7 +732,7 @@ static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t
     card.pitch_marks[i] = create_pitch_label(card.root, txt);
   }
 
-  card.heading_label = add_simple_label(card.root, "HDG 000", control_font,
+  card.heading_label = add_simple_label(card.root, "YAW 000", control_font,
                                     lv_color_white(), (lv_opa_t)(255 * 0.88));
   lv_obj_add_flag(card.heading_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.heading_label, LV_ALIGN_TOP_MID, 0, 6);
@@ -798,7 +798,7 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
   }
 
   char txt[32];
-  snprintf(txt, sizeof(txt), "HDG %03d", (int)heading);
+  snprintf(txt, sizeof(txt), "YAW %03d", (int)heading);
   lv_label_set_text(card->heading_label, txt);
 
   snprintf(txt, sizeof(txt), "ROLL %+d", roll_deg);
