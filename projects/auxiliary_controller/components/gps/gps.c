@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "can.h"
 #include "can_ids.h"
@@ -15,10 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "gpgga.h"
-#include "gprmc.h"
-#include "nmea.h"
-#include "parser.h"
+#include "minmea.h"
 
 static const char *TAG = "gps";
 
@@ -42,6 +40,21 @@ static int64_t s_last_uart_line_us;
 
 static char s_prev_uart_sentence[104];
 static char s_last_uart_sentence[104];
+
+static bool gps_local_time_rules_are_utc(void) {
+  time_t now = time(NULL);
+  if (now == (time_t)-1) {
+    return false;
+  }
+  struct tm local_tm = {0};
+  struct tm utc_tm = {0};
+  if (localtime_r(&now, &local_tm) == NULL || gmtime_r(&now, &utc_tm) == NULL) {
+    return false;
+  }
+  return local_tm.tm_year == utc_tm.tm_year && local_tm.tm_mon == utc_tm.tm_mon &&
+         local_tm.tm_mday == utc_tm.tm_mday && local_tm.tm_hour == utc_tm.tm_hour &&
+         local_tm.tm_min == utc_tm.tm_min && local_tm.tm_sec == utc_tm.tm_sec && local_tm.tm_isdst == 0;
+}
 
 static void gps_sanitize_line(char *dst, size_t dst_sz, const char *src) {
   if (dst_sz == 0) {
@@ -69,22 +82,6 @@ static void gps_on_complete_uart_line(const char *line_terminated) {
   }
 }
 
-static double nmea_latitude_to_decimal(const nmea_position *p) {
-  double v = (double)p->degrees + p->minutes / 60.0;
-  if (p->cardinal == NMEA_CARDINAL_DIR_SOUTH) {
-    v = -v;
-  }
-  return v;
-}
-
-static double nmea_longitude_to_decimal(const nmea_position *p) {
-  double v = (double)p->degrees + p->minutes / 60.0;
-  if (p->cardinal == NMEA_CARDINAL_DIR_WEST) {
-    v = -v;
-  }
-  return v;
-}
-
 static void gps_tx_can_and_cache(int32_t la, int32_t lo, int16_t sp, int16_t hd, uint8_t fix_flag) {
   uint8_t b8[8];
   memcpy(&b8[0], &la, sizeof(la));
@@ -108,63 +105,40 @@ static void gps_tx_can_and_cache(int32_t la, int32_t lo, int16_t sp, int16_t hd,
   xSemaphoreGive(s_mux);
 }
 
-/**
- * igrr/libnmea expects CRLF-terminated lines and parses in place — use a writable buffer ≤ NMEA_MAX_LENGTH.
- */
-static void append_crlf_line(char *dst, size_t dst_sz, const char *src, size_t *out_len_including_crlf) {
-  size_t w = 0;
-  for (size_t i = 0; src[i] != '\0' && w + 3 < dst_sz; i++) {
-    if (src[i] != '\r') {
-      dst[w++] = src[i];
-    }
+static bool minmea_coord_to_e7(const struct minmea_float *coord, int32_t *out_e7) {
+  if (coord == NULL || out_e7 == NULL) {
+    return false;
   }
-  dst[w++] = '\r';
-  dst[w++] = '\n';
-  dst[w] = '\0';
-  *out_len_including_crlf = w;
+  float deg = minmea_tocoord(coord);
+  if (isnan(deg)) {
+    return false;
+  }
+  *out_e7 = (int32_t)llround((double)deg * 1e7);
+  return true;
 }
 
-/**
- * Parses a single NMEA0183 logical line into a freshly allocated sentence struct (caller must nmea_free).
- * libnmea mutates wb; refill from @p line each attempt.
- */
-static nmea_s *parse_nmea_line_with_lib(const char *line, bool line_has_checksum_field) {
-  char wb[NMEA_MAX_LENGTH + 8];
-  size_t ln = 0;
-  append_crlf_line(wb, sizeof(wb), line, &ln);
-  if (ln > NMEA_MAX_LENGTH) {
-    return NULL;
+static bool apply_gga_sentence(const struct minmea_sentence_gga *gga) {
+  if (gga == NULL) {
+    return false;
   }
-  nmea_s *data = nmea_parse(wb, ln, line_has_checksum_field ? 1 : 0);
-  if (data != NULL) {
-    return data;
-  }
-  if (!line_has_checksum_field) {
-    return NULL;
-  }
-  append_crlf_line(wb, sizeof(wb), line, &ln);
-  return nmea_parse(wb, ln, 0);
-}
-
-static bool apply_gga_sentence(nmea_gpgga_s *gga) {
-  uint8_t qual = gga->position_fix;
+  uint8_t qual = (uint8_t)gga->fix_quality;
   if (qual > 8) {
     qual = 8;
   }
 
-  if (gga->position_fix == 0) {
+  if (gga->fix_quality == 0) {
     if (xSemaphoreTake(s_mux, pdMS_TO_TICKS(10)) != pdTRUE) {
       return true;
     }
-    s_gga_fix_qual = (uint8_t)gga->position_fix;
+    s_gga_fix_qual = (uint8_t)gga->fix_quality;
     s_fix_live = 0;
     xSemaphoreGive(s_mux);
     return true;
   }
 
-  double latd = nmea_latitude_to_decimal(&gga->latitude);
-  double lond = nmea_longitude_to_decimal(&gga->longitude);
-  if (isnan(latd) || isnan(lond)) {
+  int32_t gla = 0;
+  int32_t glo = 0;
+  if (!minmea_coord_to_e7(&gga->latitude, &gla) || !minmea_coord_to_e7(&gga->longitude, &glo)) {
     return false;
   }
 
@@ -176,26 +150,32 @@ static bool apply_gga_sentence(nmea_gpgga_s *gga) {
   spd_storage = s_speed_kmh_x10;
   hdg_storage = s_heading_cdeg;
   s_gga_fix_qual = qual;
-  uint8_t sats = (uint8_t)(gga->n_satellites < 0 ? 0 : gga->n_satellites);
+  uint8_t sats = (uint8_t)(gga->satellites_tracked < 0 ? 0 : gga->satellites_tracked);
   s_sats_used = sats > 99 ? 99 : sats;
   xSemaphoreGive(s_mux);
 
-  int32_t gla = (int32_t)llround(latd * 1e7);
-  int32_t glo = (int32_t)llround(lond * 1e7);
   gps_tx_can_and_cache(gla, glo, spd_storage, hdg_storage, (uint8_t)1);
   return true;
 }
 
-static bool apply_rmc_sentence(nmea_gprmc_s *rmc) {
+static bool apply_rmc_sentence(const struct minmea_sentence_rmc *rmc) {
+  if (rmc == NULL) {
+    return false;
+  }
   if (!rmc->valid) {
     return true;
   }
-  double latd = nmea_latitude_to_decimal(&rmc->latitude);
-  double lond = nmea_longitude_to_decimal(&rmc->longitude);
-  if (isnan(latd) || isnan(lond)) {
+
+  int32_t la = 0;
+  int32_t lo = 0;
+  if (!minmea_coord_to_e7(&rmc->latitude, &la) || !minmea_coord_to_e7(&rmc->longitude, &lo)) {
     return false;
   }
-  double knots = rmc->gndspd_knots;
+
+  double knots = (double)minmea_tofloat(&rmc->speed);
+  if (isnan(knots)) {
+    knots = 0.0;
+  }
   double kmh = knots * 1.852;
   int sp_ix = (int)llround(kmh * 10.0);
   if (sp_ix > 32767) {
@@ -205,7 +185,10 @@ static bool apply_rmc_sentence(nmea_gprmc_s *rmc) {
     sp_ix = -32768;
   }
 
-  double course = rmc->track_deg;
+  double course = (double)minmea_tofloat(&rmc->course);
+  if (isnan(course)) {
+    course = 0.0;
+  }
   while (course < 0) {
     course += 360.0;
   }
@@ -217,8 +200,6 @@ static bool apply_rmc_sentence(nmea_gprmc_s *rmc) {
     hc = 36000;
   }
 
-  int32_t la = (int32_t)llround(latd * 1e7);
-  int32_t lo = (int32_t)llround(lond * 1e7);
   gps_tx_can_and_cache(la, lo, (int16_t)sp_ix, (int16_t)hc, (uint8_t)1);
   return true;
 }
@@ -228,10 +209,7 @@ static void handle_one_nmea_line(const char *line_in_place_copy_src) {
     return;
   }
 
-  const bool line_has_chk = strchr(line_in_place_copy_src, '*') != NULL;
-  nmea_s *data = parse_nmea_line_with_lib(line_in_place_copy_src, line_has_chk);
-
-  if (data == NULL) {
+  if (!minmea_check(line_in_place_copy_src, false)) {
     if (s_mux != NULL && xSemaphoreTake(s_mux, pdMS_TO_TICKS(10)) == pdTRUE) {
       s_nmea_parse_fail++;
       xSemaphoreGive(s_mux);
@@ -239,29 +217,39 @@ static void handle_one_nmea_line(const char *line_in_place_copy_src) {
     return;
   }
 
-  s_nmea_frames++;
+  bool parse_ok = false;
+  switch (minmea_sentence_id(line_in_place_copy_src, false)) {
+  case MINMEA_SENTENCE_GGA: {
+    struct minmea_sentence_gga gga;
+    if (minmea_parse_gga(&gga, line_in_place_copy_src)) {
+      parse_ok = apply_gga_sentence(&gga);
+    }
+    break;
+  }
+  case MINMEA_SENTENCE_RMC: {
+    struct minmea_sentence_rmc rmc;
+    if (minmea_parse_rmc(&rmc, line_in_place_copy_src)) {
+      parse_ok = apply_rmc_sentence(&rmc);
+    }
+    break;
+  }
+  default:
+    return;
+  }
+
   if (s_mux != NULL && xSemaphoreTake(s_mux, pdMS_TO_TICKS(10)) == pdTRUE) {
-    s_nmea_parse_ok++;
+    if (parse_ok) {
+      s_nmea_frames++;
+      s_nmea_parse_ok++;
+    } else {
+      s_nmea_parse_fail++;
+    }
     xSemaphoreGive(s_mux);
   }
-
-  switch (data->type) {
-  case NMEA_GPGGA:
-    (void)apply_gga_sentence((nmea_gpgga_s *)data);
-    break;
-  case NMEA_GPRMC:
-    (void)apply_rmc_sentence((nmea_gprmc_s *)data);
-    break;
-  default:
-    break;
-  }
-
-  nmea_free(data);
 }
 
 static void gps_uart_task(void *arg) {
   (void)arg;
-  (void)nmea_load_parsers();
 
   const uart_port_t port = (uart_port_t)CONFIG_GPS_UART_PORT_NUM;
 
@@ -345,6 +333,10 @@ void gps_init(void) {
   started = true;
   if (s_mux == NULL) {
     s_mux = xSemaphoreCreateMutex();
+  }
+  if (!gps_local_time_rules_are_utc()) {
+    ESP_LOGW(TAG,
+             "System local timezone is not UTC; minmea timegm->mktime fallback requires UTC for correct GPS epoch conversion");
   }
   xTaskCreate(gps_uart_task, "gps_uart", 8192, NULL, 5, NULL);
   ESP_LOGI(TAG, "GPS UART task port %d RX GPIO %d %u baud (TX %s)", CONFIG_GPS_UART_PORT_NUM,
