@@ -35,18 +35,7 @@ typedef enum {
   kUiThrottleCount,
 } ui_throttle_t;
 
-static int64_t s_ui_last_us[kUiThrottleCount];
-
-static bool ui_throttle_ok(ui_throttle_t t) {
-  const int hz = (CONFIG_DASHBOARD_UI_THROTTLE_HZ > 0) ? CONFIG_DASHBOARD_UI_THROTTLE_HZ : 1;
-  const int64_t min_dt = 1000000LL / (int64_t)hz;
-  const int64_t now = esp_timer_get_time();
-  if (s_ui_last_us[t] == 0 || (now - s_ui_last_us[t]) >= min_dt) {
-    s_ui_last_us[t] = now;
-    return true;
-  }
-  return false;
-}
+static bool ui_throttle_ok(dashboard_ui_t *ui, ui_throttle_t t);
 
 enum {
   HEIGHT_TRACK_X = 54,
@@ -143,7 +132,22 @@ struct dashboard_ui {
   control_surface_card_t elevon_right;
   int32_t h_res;
   int32_t v_res;
+  int64_t last_update_us[kUiThrottleCount];
 };
+
+static bool ui_throttle_ok(dashboard_ui_t *ui, ui_throttle_t t) {
+  const int hz = (CONFIG_DASHBOARD_UI_THROTTLE_HZ > 0) ? CONFIG_DASHBOARD_UI_THROTTLE_HZ : 1;
+  const int64_t min_dt = 1000000LL / (int64_t)hz;
+  const int64_t now = esp_timer_get_time();
+  if (ui == NULL) {
+    return false;
+  }
+  if (ui->last_update_us[t] == 0 || (now - ui->last_update_us[t]) >= min_dt) {
+    ui->last_update_us[t] = now;
+    return true;
+  }
+  return false;
+}
 
 static const int32_t s_attitude_ticks[ATTITUDE_TICK_COUNT] = {30, 20, 10, -10,
                                                               -20, -30};
@@ -1054,7 +1058,7 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
 
   /* Reset primitive throttles for this UI instance. */
   for (size_t i = 0; i < (size_t)kUiThrottleCount; i++) {
-    s_ui_last_us[i] = 0;
+    ui->last_update_us[i] = 0;
   }
 
   int32_t ui_h_res = h_res;
@@ -1104,6 +1108,14 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
                                                   "L ELEVON", true);
   ui->elevon_right = create_control_surface_card(ui->root, row2_w[5], row2_h,
                                                    "R ELEVON", true);
+
+  if (ui->speed.root == NULL || ui->height.root == NULL || ui->attitude.root == NULL ||
+      ui->battery.root == NULL || ui->motors[0].root == NULL || ui->motors[1].root == NULL ||
+      ui->rudder.root == NULL || ui->elevon_left.root == NULL || ui->elevon_right.root == NULL) {
+    ESP_LOGE(TAG, "Failed to create one or more dashboard cards");
+    dashboard_ui_destroy(ui);
+    return NULL;
+  }
 
   return ui;
 }
@@ -1155,7 +1167,7 @@ void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiSpeed)) {
+  if (!ui_throttle_ok(ui, kUiSpeed)) {
     return;
   }
   speed_card_set_val(&ui->speed, speed_kmh, 100);
@@ -1165,7 +1177,7 @@ void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t heig
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiHeight)) {
+  if (!ui_throttle_ok(ui, kUiHeight)) {
     return;
   }
   height_card_set_val(&ui->height, height_cm, height_target_cm, 50);
@@ -1175,7 +1187,7 @@ void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pit
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiAttitude)) {
+  if (!ui_throttle_ok(ui, kUiAttitude)) {
     return;
   }
   attitude_card_set_val(&ui->attitude, roll_deg, pitch_deg, heading_deg);
@@ -1185,7 +1197,7 @@ void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t volta
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiBattery)) {
+  if (!ui_throttle_ok(ui, kUiBattery)) {
     return;
   }
   battery_card_set_val(&ui->battery, percent, voltage_v, current_a, temp_c);
@@ -1196,10 +1208,10 @@ void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, 
     return;
   }
   /* Motor updates tend to move together; throttle them as one logical section. */
-  if (index == 0 && !ui_throttle_ok(kUiMotor0)) {
+  if (index == 0 && !ui_throttle_ok(ui, kUiMotor0)) {
     return;
   }
-  if (index == 1 && !ui_throttle_ok(kUiMotor1)) {
+  if (index == 1 && !ui_throttle_ok(ui, kUiMotor1)) {
     return;
   }
   motor_card_set_val(&ui->motors[index], percent, power_kw_x10, rpm, temp_c);
@@ -1209,7 +1221,7 @@ void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiRudder)) {
+  if (!ui_throttle_ok(ui, kUiRudder)) {
     return;
   }
   control_surface_card_set_val(&ui->rudder, rudder_deg);
@@ -1219,9 +1231,31 @@ void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t righ
   if (ui == NULL) {
     return;
   }
-  if (!ui_throttle_ok(kUiElevons)) {
+  if (!ui_throttle_ok(ui, kUiElevons)) {
     return;
   }
   control_surface_card_set_val(&ui->elevon_left, left_deg);
   control_surface_card_set_val(&ui->elevon_right, right_deg);
+}
+
+void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
+  if (ui == NULL || data == NULL) {
+    return;
+  }
+
+  dashboard_ui_set_speed(ui, data->speed_kmh);
+  dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
+  dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
+  dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
+                            data->battery_current_a, data->battery_temp_c);
+
+  const int32_t motor_count = (data->motor_count < 0) ? 0 : data->motor_count;
+  const int32_t max_motors = (motor_count > DASHBOARD_MOTOR_MAX) ? DASHBOARD_MOTOR_MAX : motor_count;
+  for (int32_t i = 0; i < max_motors; i++) {
+    dashboard_ui_set_motor(ui, i, data->motor_percent[i], data->motor_power_kw_x10[i],
+                              data->motor_rpm[i], data->motor_temp_c[i]);
+  }
+
+  dashboard_ui_set_rudder(ui, data->rudder_deg);
+  dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
 }

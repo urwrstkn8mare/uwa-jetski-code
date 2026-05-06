@@ -37,6 +37,9 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
                                   void *font_get_user_data);
 void dashboard_ui_destroy(dashboard_ui_t *ui);
 
+/* Apply a full dashboard snapshot through the per-box setters. */
+void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data);
+
 /* Per-box partial updates — use these when only a subset of data changes
  * to avoid redundant LVGL redraws of untouched cards. */
 void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh);

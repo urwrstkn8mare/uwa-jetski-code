@@ -219,6 +219,13 @@ size_t imu_status_line_write(char *buf, size_t cap) {
     if (buf == NULL || cap == 0) {
         return 0;
     }
+
+    // The status display polls this during boot, before imu_init() completes.
+    if (!s_imu_initialized) {
+        int n = snprintf(buf, cap, "P/R/Y: --- (IMU init)");
+        return (n > 0) ? (size_t)n : 0;
+    }
+
     float pitch = 0, roll = 0, yaw = 0;
     if (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
         int n =

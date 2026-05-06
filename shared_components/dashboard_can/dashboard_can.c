@@ -162,3 +162,13 @@ size_t dashboard_can_status_strip_write(char *buffer, size_t len, void *user) {
   int written = can_snprintf_board_status(buffer, len);
   return (written > 0) ? (size_t)written : 0;
 }
+
+size_t dashboard_can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
+  (void)user;
+  if (buffer == NULL || len == 0) {
+    return 0;
+  }
+
+  int written = snprintf(buffer, len, "CAN unavailable");
+  return (written > 0) ? (size_t)written : 0;
+}

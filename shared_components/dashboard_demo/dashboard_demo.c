@@ -41,3 +41,14 @@ void dashboard_demo_fill(dashboard_data_t *data, uint32_t t)
     data->elevon_left_deg  = sin_scale(19, 6, t);
     data->elevon_right_deg = -sin_scale(21, 6, t);
 }
+
+void dashboard_demo_update_ui(dashboard_ui_t *ui, uint32_t elapsed_ms)
+{
+    if (ui == NULL) {
+        return;
+    }
+
+    dashboard_data_t data = {0};
+    dashboard_demo_fill(&data, elapsed_ms);
+    dashboard_ui_apply_data(ui, &data);
+}

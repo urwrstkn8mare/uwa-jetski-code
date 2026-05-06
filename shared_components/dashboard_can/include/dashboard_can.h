@@ -25,3 +25,5 @@ esp_err_t dashboard_can_start(void);
 /** One-line status strip text. */
 size_t dashboard_can_status_strip_write(char *buffer, size_t len, void *user);
 
+/** Fallback status strip text when CAN is not available. */
+size_t dashboard_can_unavailable_status_strip_write(char *buffer, size_t len, void *user);
