@@ -14,7 +14,7 @@ from _project_cli import (
 )
 
 DEFAULT_DELETE = ["build", "build.clang", "managed_components", ".cache", "sdkconfig"]
-FORCE_DELETE = ["sdkconfig.old", ".serial_port"]
+FORCE_DELETE = ["sdkconfig.old", ".serial_port", "dependencies.lock"]
 
 
 def main():
