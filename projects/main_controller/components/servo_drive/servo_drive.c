@@ -2,6 +2,8 @@
 
 #include "driver/ledc.h"
 #include "esp_log.h"
+#include <inttypes.h>
+#include <stdio.h>
 
 static const char *TAG = "servo_pwm";
 static bool s_ready;
@@ -118,4 +120,19 @@ bool servo_drive_get_feedback_us(uint8_t channel, uint16_t *pulse_us_out) {
   }
   *pulse_us_out = (uint16_t)((channel == 0) ? s_ch0_us : s_ch1_us);
   return s_ready;
+}
+
+size_t servo_drive_status_line_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+  if (!s_ready) {
+    int n = snprintf(buf, cap, "Servo: off");
+    return (n > 0) ? (size_t)n : 0;
+  }
+  uint32_t mch0_us = 0;
+  uint32_t mch1_us = 0;
+  servo_drive_get_pulse_us(&mch0_us, &mch1_us);
+  int n = snprintf(buf, cap, "S0:%" PRIu32 " S1:%" PRIu32, mch0_us, mch1_us);
+  return (n > 0) ? (size_t)n : 0;
 }

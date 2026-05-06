@@ -4,7 +4,7 @@ idf_component_register(
     INCLUDE_DIRS
         "."
     REQUIRES
-        can can_ui_bridge dashboard_ui dashboard_app
+        dashboard_ui dashboard_can dashboard_demo lvgl_status_display
     PRIV_REQUIRES
         ws_display
 )

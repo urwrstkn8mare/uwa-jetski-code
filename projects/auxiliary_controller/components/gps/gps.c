@@ -1,6 +1,8 @@
 #include "gps.h"
 
 #include <ctype.h>
+#include <inttypes.h>
+#include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -398,4 +400,54 @@ void gps_get_live_debug(gps_live_debug_t *out) {
     out->ms_since_last_uart_line = 0xffffffffu;
   }
   xSemaphoreGive(s_mux);
+}
+
+size_t gps_status_navigation_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+
+  int32_t la = 0, lo = 0;
+  int16_t sp = 0, hd = 0;
+  uint8_t fix = 0;
+  uint8_t gga_q = 0;
+  gps_get_snapshot(&la, &lo, &sp, &hd, &fix, &gga_q);
+
+  unsigned sp_dec = (unsigned)labs((long)(sp % 10));
+  unsigned hd_frac = (unsigned)labs((long)(hd % 100));
+  int hd_deg = hd / 100;
+
+  gps_live_debug_t gd_live;
+  gps_get_live_debug(&gd_live);
+
+  int n = snprintf(buf, cap,
+               "fx%u gq%u st%u\n"
+               "lat%ld lon%ld\n"
+               "spd%u.%u hdg%d.%02u",
+               (unsigned)fix, (unsigned)gga_q, (unsigned)gd_live.sats_used_last_gga, (long)la, (long)lo,
+               (unsigned)(sp / 10), sp_dec, hd_deg, hd_frac);
+  return (n > 0) ? (size_t)n : 0;
+}
+
+size_t gps_status_uart_dump_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+  gps_live_debug_t gd;
+  gps_get_live_debug(&gd);
+  char age_buf[20];
+  if (gd.ms_since_last_uart_line == 0xffffffffu) {
+    strlcpy(age_buf, "--", sizeof(age_buf));
+  } else {
+    snprintf(age_buf, sizeof(age_buf), "%" PRIu32 "ms", gd.ms_since_last_uart_line);
+  }
+  int n = snprintf(buf, cap,
+                   "-----------\n"
+                   "GPS %ubps rxB%" PRIu32 " Ln%" PRIu32 "\n"
+                   " ok%" PRIu32 " x%" PRIu32 " %s\n"
+                   "%.100s\n"
+                   "%.100s",
+                   (unsigned)gd.uart_baud, gd.uart_bytes_rx, gd.uart_lines_rx, gd.nmea_parse_ok, gd.nmea_parse_fail,
+                   age_buf, gd.last_sentence, gd.prev_sentence);
+  return (n > 0) ? (size_t)n : 0;
 }

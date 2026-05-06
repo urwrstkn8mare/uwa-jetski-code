@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
@@ -23,3 +24,5 @@ void app_state_get(app_state_t *out);
 void app_state_on_can_rx(const uint8_t buffer[8], uint32_t header_id);
 /** True if POT was received within max_age_ms; writes 0–100 into *pot_pct_out. */
 bool app_state_pot_fresh(uint32_t max_age_ms, uint16_t *pot_pct_out);
+
+size_t app_state_debug_flags_line_write(char *buf, size_t cap);

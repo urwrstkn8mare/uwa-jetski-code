@@ -1,6 +1,7 @@
 #include "rudder_pot.h"
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "can.h"
 #include "can_ids.h"
@@ -89,3 +90,12 @@ esp_err_t rudder_pot_init(void) {
 uint16_t rudder_pot_get_last_pct(void) { return s_last_pct; }
 
 int rudder_pot_get_last_raw(void) { return s_last_raw; }
+
+size_t rudder_pot_status_line_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+  int n = snprintf(buf, cap, "Pot %u%% raw %d [%d..%d]", (unsigned)rudder_pot_get_last_pct(),
+                   rudder_pot_get_last_raw(), CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX);
+  return (n > 0) ? (size_t)n : 0;
+}

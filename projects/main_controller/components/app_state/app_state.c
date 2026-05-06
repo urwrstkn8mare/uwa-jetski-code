@@ -3,6 +3,7 @@
 #include "can_ids.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include <stdio.h>
 #include <string.h>
 
 static SemaphoreHandle_t s_mx;
@@ -87,6 +88,18 @@ void app_state_on_can_rx(const uint8_t buffer[8], uint32_t header_id) {
   s_have_pot = true;
   s_pot_tick = xTaskGetTickCount();
   mtx_give();
+}
+
+size_t app_state_debug_flags_line_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+  app_state_t s;
+  app_state_get(&s);
+  int n =
+      snprintf(buf, cap, "IMU:%s Height:%s Servo:%s", s.imu_ok ? "ok" : "off",
+               s.height_ok ? "ok" : "off", (s.servo_ok) ? "ok" : "off");
+  return (n > 0) ? (size_t)n : 0;
 }
 
 bool app_state_pot_fresh(uint32_t max_age_ms, uint16_t *pot_pct_out) {

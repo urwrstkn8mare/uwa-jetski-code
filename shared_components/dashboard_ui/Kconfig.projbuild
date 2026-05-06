@@ -1,0 +1,13 @@
+menu "Dashboard UI"
+
+config DASHBOARD_UI_THROTTLE_HZ
+    int "Max UI patch rate (Hz)"
+    default 60
+    range 1 200
+    help
+        Throttle dashboard_ui's primitive setters to avoid overwhelming LVGL.
+        CAN and demo both call these primitive setters; throttling happens inside
+        dashboard_ui.
+
+endmenu
+

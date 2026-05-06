@@ -1,0 +1,20 @@
+menu "WS LCD Dashboard feed"
+
+choice WS_LCD_DASHBOARD_FEED_MODE
+    prompt "Dashboard feed source"
+    default WS_LCD_DASHBOARD_FEED_MODE_CAN
+
+    config WS_LCD_DASHBOARD_FEED_MODE_CAN
+        bool "CAN"
+
+    config WS_LCD_DASHBOARD_FEED_MODE_DEMO
+        bool "DEMO"
+endchoice
+
+config WS_LCD_DASHBOARD_DEMO_HZ
+    int "DEMO update rate (Hz)"
+    default 60
+    range 1 200
+
+endmenu
+

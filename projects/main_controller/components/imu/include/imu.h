@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stddef.h>
 
 /**
  * @brief Initialize the ICM-20948 and its DMP.
@@ -30,3 +31,5 @@ esp_err_t imu_get_pitch_roll(float *pitch, float *roll);
  * @return ESP_OK on success, ESP_FAIL if not initialized.
  */
 esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw);
+
+size_t imu_status_line_write(char *buf, size_t cap);

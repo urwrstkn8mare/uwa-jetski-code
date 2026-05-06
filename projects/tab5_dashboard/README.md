@@ -1,3 +1,10 @@
-# Tab5 Dashboard
+# Tab5 hydrofoil dashboard
 
-M5Stack Tab5 target for the hydrofoil dashboard UI. It **only consumes CAN** (no local pot): `can_ui_bridge` fills `dashboard_ui` from the bus (attitude, height, dual servos, GPS speed/heading) on top of the demo animation.
+M5Stack Tab5 target for the hydrofoil dashboard UI.
+
+The dashboard feed is selected via `menuconfig` → *Dashboard feed*:
+
+- **CAN**: TWAI RX directly patches `dashboard_ui` widgets (throttled).
+- **DEMO**: an LVGL timer runs `dashboard_demo_fill()` and calls `dashboard_ui_set_data()`.
+
+Board bring-up (EXT5V, LVGL/BSP tuning, backlight, unused blocks disabled) lives in **`main/main.c`** next to the dashboard wiring.

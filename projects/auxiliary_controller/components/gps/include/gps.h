@@ -26,3 +26,8 @@ typedef struct {
 
 /** Thread-safe; fills @p out (cleared if mutex unavailable). */
 void gps_get_live_debug(gps_live_debug_t *out);
+
+/** Fix / snapshot text for the auxiliary debug panel (multiple logical lines joined with '\n'). */
+size_t gps_status_navigation_write(char *buf, size_t cap);
+/** UART + NMEA parse statistics + recent sentences for the auxiliary debug panel. */
+size_t gps_status_uart_dump_write(char *buf, size_t cap);

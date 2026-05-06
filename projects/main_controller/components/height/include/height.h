@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stddef.h>
 #include <stdint.h>
 
 /**
@@ -20,3 +21,6 @@ esp_err_t height_init(void);
  * @return ESP_OK on success, ESP_FAIL if not initialized.
  */
 esp_err_t height_get_cm(int32_t *height_cm);
+
+/** One LVGL/debug line from the ultrasonic driver (no newline). */
+size_t height_status_line_write(char *buf, size_t cap);

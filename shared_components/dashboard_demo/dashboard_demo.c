@@ -2,15 +2,19 @@
 
 #include "misc/lv_math.h"
 
-/* 32‑bit amplitude, 16‑bit sine → promotion to 32 bits before division. */
+#include <stddef.h>
+
 static int32_t sin_scale(uint16_t period_ms, int32_t amplitude, uint32_t elapsed_ms)
 {
-    return (amplitude * lv_trigo_sin((int16_t)((elapsed_ms / period_ms) % 360)))
-           / LV_TRIGO_SIN_MAX;
+    return (amplitude * lv_trigo_sin((int16_t)((elapsed_ms / period_ms) % 360))) / LV_TRIGO_SIN_MAX;
 }
 
-/* Generates smooth sinusoidal test data to exercise every dashboard widget.
- * Replace this entire file when plumbing in real sensor / CAN data. */
+void dashboard_demo_feed_cb(dashboard_data_t *out, uint32_t elapsed_ms, void *user)
+{
+    (void)user;
+    dashboard_demo_fill(out, elapsed_ms);
+}
+
 void dashboard_demo_fill(dashboard_data_t *data, uint32_t t)
 {
     if (data == NULL) {

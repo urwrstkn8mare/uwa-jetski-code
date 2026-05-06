@@ -1,5 +1,8 @@
 #include "height.h"
 
+#include <inttypes.h>
+#include <stdio.h>
+
 #include "a02yyuw.h"
 #include "driver/uart.h"
 #include "esp_err.h"
@@ -171,4 +174,17 @@ esp_err_t height_get_cm(int32_t *height_cm) {
     *height_cm = s_height_cm;
     xSemaphoreGive(s_mutex);
     return ESP_OK;
+}
+
+size_t height_status_line_write(char *buf, size_t cap) {
+  if (buf == NULL || cap == 0) {
+    return 0;
+  }
+  int32_t hcm = -1;
+  if (height_get_cm(&hcm) == ESP_OK) {
+    int n = snprintf(buf, cap, "H:%" PRId32 " cm", hcm);
+    return (n > 0) ? (size_t)n : 0;
+  }
+  int n = snprintf(buf, cap, "H: off (ultrasonic N/C)");
+  return (n > 0) ? (size_t)n : 0;
 }

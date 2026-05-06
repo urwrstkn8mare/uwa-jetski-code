@@ -6,7 +6,7 @@ idf_component_register(
         "."
         "ui"
     REQUIRES
-        can can_ui_bridge dashboard_ui dashboard_app tab5_bringup
+        dashboard_ui dashboard_can dashboard_demo lvgl_status_display
 )
 
 set_source_files_properties(main.c PROPERTIES COMPILE_OPTIONS "-std=gnu23")

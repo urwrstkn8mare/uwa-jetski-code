@@ -1,5 +1,10 @@
-# ws-lcd Dashboard
+# WS LCD hydrofoil dashboard
 
-Waveshare LCD target for the hydrofoil dashboard UI. **CAN** is initialised the same way as Tab5: `can_ui_bridge` merges live frames into the dashboard (identical logic to `tab5_dashboard/main/main.c`).
+Waveshare LCD target for the hydrofoil dashboard UI.
 
-See `../AGENTS.md` for project documentation.
+**Feed selection** is via `menuconfig` → *Dashboard feed*:
+
+- **CAN**: TWAI RX directly patches `dashboard_ui` widgets (throttled).
+- **DEMO**: an LVGL timer runs `dashboard_demo_fill()` and calls `dashboard_ui_set_data()`.
+
+The bottom strip uses `lvgl_status_display` to show either CAN status or the demo rate.

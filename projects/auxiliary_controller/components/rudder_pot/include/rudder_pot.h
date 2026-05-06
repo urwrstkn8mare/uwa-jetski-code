@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -14,3 +15,5 @@ uint16_t rudder_pot_get_last_pct(void);
 
 /** Last raw ADC sample, for calibration/debug UI. */
 int rudder_pot_get_last_raw(void);
+
+size_t rudder_pot_status_line_write(char *buf, size_t cap);

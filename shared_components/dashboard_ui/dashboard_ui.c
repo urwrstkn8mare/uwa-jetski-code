@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -21,6 +22,31 @@ static const lv_font_t *percent_font = &lv_font_montserrat_18;
 static const lv_font_t *elevon_font = &lv_font_montserrat_18;
 static const lv_font_t *small_font = &lv_font_montserrat_14;
 static const lv_font_t *title_font = &lv_font_montserrat_14;
+
+typedef enum {
+  kUiSpeed = 0,
+  kUiHeight,
+  kUiAttitude,
+  kUiBattery,
+  kUiMotor0,
+  kUiMotor1,
+  kUiRudder,
+  kUiElevons,
+  kUiThrottleCount,
+} ui_throttle_t;
+
+static int64_t s_ui_last_us[kUiThrottleCount];
+
+static bool ui_throttle_ok(ui_throttle_t t) {
+  const int hz = (CONFIG_DASHBOARD_UI_THROTTLE_HZ > 0) ? CONFIG_DASHBOARD_UI_THROTTLE_HZ : 1;
+  const int64_t min_dt = 1000000LL / (int64_t)hz;
+  const int64_t now = esp_timer_get_time();
+  if (s_ui_last_us[t] == 0 || (now - s_ui_last_us[t]) >= min_dt) {
+    s_ui_last_us[t] = now;
+    return true;
+  }
+  return false;
+}
 
 enum {
   HEIGHT_TRACK_X = 54,
@@ -1028,6 +1054,11 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
     return NULL;
   }
 
+  /* Reset primitive throttles for this UI instance. */
+  for (size_t i = 0; i < (size_t)kUiThrottleCount; i++) {
+    s_ui_last_us[i] = 0;
+  }
+
   int32_t ui_h_res = h_res;
   int32_t ui_v_res = v_res;
 
@@ -1097,8 +1128,36 @@ void dashboard_ui_destroy(dashboard_ui_t *ui) {
   free(ui);
 }
 
+lv_obj_t *dashboard_ui_create_status_strip(lv_obj_t *screen, int32_t h_res, int32_t strip_h_px) {
+  if (screen == NULL || h_res <= 0 || strip_h_px <= 0) {
+    return NULL;
+  }
+
+  lv_obj_t *strip_bg = lv_obj_create(screen);
+  lv_obj_remove_style_all(strip_bg);
+  lv_obj_remove_flag(strip_bg, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(strip_bg, h_res, strip_h_px);
+  lv_obj_align(strip_bg, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_bg_color(strip_bg, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(strip_bg, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(strip_bg, 0, 0);
+
+  lv_obj_t *label = lv_label_create(strip_bg);
+  lv_obj_set_size(label, h_res - 6, strip_h_px - 2);
+  lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(label, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
+  lv_obj_set_style_text_color(label, lv_color_hex(0xCFCFCF), 0);
+  lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
+  lv_label_set_text(label, "…");
+  return label;
+}
+
 void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
   if (ui == NULL) {
+    return;
+  }
+  if (!ui_throttle_ok(kUiSpeed)) {
     return;
   }
   speed_card_set_val(&ui->speed, speed_kmh, 100);
@@ -1108,11 +1167,17 @@ void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t heig
   if (ui == NULL) {
     return;
   }
+  if (!ui_throttle_ok(kUiHeight)) {
+    return;
+  }
   height_card_set_val(&ui->height, height_cm, height_target_cm, 50);
 }
 
 void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg) {
   if (ui == NULL) {
+    return;
+  }
+  if (!ui_throttle_ok(kUiAttitude)) {
     return;
   }
   attitude_card_set_val(&ui->attitude, roll_deg, pitch_deg, heading_deg);
@@ -1122,11 +1187,21 @@ void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t volta
   if (ui == NULL) {
     return;
   }
+  if (!ui_throttle_ok(kUiBattery)) {
+    return;
+  }
   battery_card_set_val(&ui->battery, percent, voltage_v, current_a, temp_c);
 }
 
 void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c) {
   if (ui == NULL || index < 0 || index >= DASHBOARD_MOTOR_MAX) {
+    return;
+  }
+  /* Motor updates tend to move together; throttle them as one logical section. */
+  if (index == 0 && !ui_throttle_ok(kUiMotor0)) {
+    return;
+  }
+  if (index == 1 && !ui_throttle_ok(kUiMotor1)) {
     return;
   }
   motor_card_set_val(&ui->motors[index], percent, power_kw_x10, rpm, temp_c);
@@ -1136,11 +1211,17 @@ void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
   if (ui == NULL) {
     return;
   }
+  if (!ui_throttle_ok(kUiRudder)) {
+    return;
+  }
   control_surface_card_set_val(&ui->rudder, rudder_deg);
 }
 
 void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg) {
   if (ui == NULL) {
+    return;
+  }
+  if (!ui_throttle_ok(kUiElevons)) {
     return;
   }
   control_surface_card_set_val(&ui->elevon_left, left_deg);
@@ -1153,29 +1234,28 @@ void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
   }
 
   if (!ui->has_last_data || ui->last_data.speed_kmh != data->speed_kmh) {
-    dashboard_ui_set_speed(ui, data->speed_kmh);
+    speed_card_set_val(&ui->speed, data->speed_kmh, 100);
   }
   if (!ui->has_last_data || ui->last_data.height_cm != data->height_cm ||
       ui->last_data.height_target_cm != data->height_target_cm) {
-    dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
+    height_card_set_val(&ui->height, data->height_cm, data->height_target_cm, 50);
   }
   if (!ui->has_last_data || ui->last_data.roll_deg != data->roll_deg ||
       ui->last_data.pitch_deg != data->pitch_deg ||
       ui->last_data.heading_deg != data->heading_deg) {
-    dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
+    attitude_card_set_val(&ui->attitude, data->roll_deg, data->pitch_deg, data->heading_deg);
   }
   if (!ui->has_last_data || ui->last_data.battery_percent != data->battery_percent ||
       ui->last_data.battery_voltage_v != data->battery_voltage_v ||
       ui->last_data.battery_current_a != data->battery_current_a ||
       ui->last_data.battery_temp_c != data->battery_temp_c) {
-    dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
-                             data->battery_current_a, data->battery_temp_c);
+    battery_card_set_val(&ui->battery, data->battery_percent, data->battery_voltage_v,
+                         data->battery_current_a, data->battery_temp_c);
   }
   if (!ui->has_last_data || ui->last_data.motor_count != data->motor_count) {
     for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
-      dashboard_ui_set_motor(ui, i, data->motor_percent[i],
-                             data->motor_power_kw_x10[i], data->motor_rpm[i],
-                             data->motor_temp_c[i]);
+      motor_card_set_val(&ui->motors[i], data->motor_percent[i],
+                          data->motor_power_kw_x10[i], data->motor_rpm[i], data->motor_temp_c[i]);
     }
   } else {
     for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
@@ -1183,18 +1263,18 @@ void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
           ui->last_data.motor_power_kw_x10[i] != data->motor_power_kw_x10[i] ||
           ui->last_data.motor_rpm[i] != data->motor_rpm[i] ||
           ui->last_data.motor_temp_c[i] != data->motor_temp_c[i]) {
-        dashboard_ui_set_motor(ui, i, data->motor_percent[i],
-                               data->motor_power_kw_x10[i], data->motor_rpm[i],
-                               data->motor_temp_c[i]);
+        motor_card_set_val(&ui->motors[i], data->motor_percent[i],
+                            data->motor_power_kw_x10[i], data->motor_rpm[i], data->motor_temp_c[i]);
       }
     }
   }
   if (!ui->has_last_data || ui->last_data.rudder_deg != data->rudder_deg) {
-    dashboard_ui_set_rudder(ui, data->rudder_deg);
+    control_surface_card_set_val(&ui->rudder, data->rudder_deg);
   }
   if (!ui->has_last_data || ui->last_data.elevon_left_deg != data->elevon_left_deg ||
       ui->last_data.elevon_right_deg != data->elevon_right_deg) {
-    dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
+    control_surface_card_set_val(&ui->elevon_left, data->elevon_left_deg);
+    control_surface_card_set_val(&ui->elevon_right, data->elevon_right_deg);
   }
 
   ui->last_data = *data;

@@ -4,19 +4,23 @@
 
 ESP32-S3 on the LilyGO **T-Display-S3**:
 
-- **Debug LVGL** strip (link, IMU, height, servo, rudder demand from CAN).
+- **Debug LVGL** text (link, IMU, height, servo, rudder demand from CAN) assembled by **`lvgl_status_display`** from per-subsystem callbacks; hardware components expose compact `*_status_line_write` helpers in `main`.
 - **Two 50 Hz LEDC servo outputs** driven by **pot %** from the auxiliary controller on **CAN 0x102**; **0x103** echoes commanded surface angles.
-- **CAN TWAI** shared with the rest of the vehicle (attitude **0x100**, height **0x101**, etc.).
+- **CAN TWAI** shared with the rest of the vehicle (attitude **0x100**, height **0x101**, etc.) — **`shared_components/can`** wired via `EXTRA_COMPONENT_DIRS`.
 - **ICM-20948** (I2C / DMP attitude) and **A02YYUW** ultrasonic height (UART).
 
 Failures to bring up CAN / IMU / height are **non-fatal**; the panel shows what is working.
 
 ## Components
 
-- `components/app_state` — subsystem flags + rudder POT from CAN (mutex).
-- `components/main_panel_ui` — `tdisplays3` + LVGL status UI.
-- `components/servo_drive`, `components/can`, `components/imu`, `components/height` — hardware drivers.
-- `main/idf_component.yml` — pulls **icm20948** and **tdisplays3** from `urwrstkn8mare/esp-idf-t-display-s3` (`components/tdisplays3`).
+- **`main`** — pulls in **`lvgl_status_display`**, **`tdisplays3`**, wires status providers and supervisor loop.
+- **`components/app_state`** — subsystem flags + rudder POT from CAN (mutex).
+- **`components/servo_drive`**, **`components/imu`**, **`components/height`** — hardware drivers; each exposes a one-line **`_*_status_line_write`** for debug text.
+- **`main/idf_component.yml`** — **tdisplays3** BSP (and LVGL/Button helpers).
+
+## Shared code
+
+TWAI **`can`** driver lives under **`shared_components/can/`** (`EXTRA_COMPONENT_DIRS` in this project’s root `CMakeLists.txt`).
 
 ## Build
 

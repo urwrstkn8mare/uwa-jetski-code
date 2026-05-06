@@ -1,6 +1,7 @@
 #include "imu.h"
 
 #include <math.h>
+#include <stdio.h>
 
 #include "driver/i2c_master.h"
 #include "esp_check.h"
@@ -216,4 +217,18 @@ esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
 
 esp_err_t imu_get_pitch_roll(float *pitch, float *roll) {
     return imu_get_pitch_roll_yaw(pitch, roll, NULL);
+}
+
+size_t imu_status_line_write(char *buf, size_t cap) {
+    if (buf == NULL || cap == 0) {
+        return 0;
+    }
+    float pitch = 0, roll = 0, yaw = 0;
+    if (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
+        int n =
+            snprintf(buf, cap, "P:%.1f R:%.1f Y:%.1f deg", (double)pitch, (double)roll, (double)yaw);
+        return (n > 0) ? (size_t)n : 0;
+    }
+    int n = snprintf(buf, cap, "P/R/Y: --- (IMU off)");
+    return (n > 0) ? (size_t)n : 0;
 }
