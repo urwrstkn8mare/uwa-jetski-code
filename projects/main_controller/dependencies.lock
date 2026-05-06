@@ -1,12 +1,12 @@
 dependencies:
   a02yyuw:
-    component_hash: e8482d8ccee1c5e8a0f178580d05ee9ae7753a75e0e1ab83bf04e3f87436738e
+    component_hash: aacd059653d505cad866d29fedcc7c13f6def628f3306e724fa82d38e44219bb
     dependencies: []
     source:
-      git: https://github.com/SiriusBrightstar/ESP_IDF_A02YYUW.git
+      git: https://github.com/urwrstkn8mare/ESP_IDF_A02YYUW.git
       path: components/a02yyuw
       type: git
-    version: ef554387861825a4eb2001d176154612082bcb04
+    version: 2f361fe58cb61ca4c67458cb4ffd57ed776f8e86
   espressif/button:
     component_hash: d0afa32f0e50d60bc0c6fc23f7eea98adc6b02cfe70b590bc52c23c506745287
     dependencies:
@@ -48,7 +48,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.3
+    version: 6.0.1
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -57,7 +57,7 @@ dependencies:
       type: service
     version: 9.5.0
   tdisplays3:
-    component_hash: 48908329a6c656edf9800e883bbac6daa51bd2fc79c3652e906a82e0a6a4e655
+    component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
     dependencies:
     - name: espressif/esp_lvgl_port
       version: ^2.6.2
@@ -70,9 +70,9 @@ dependencies:
       git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
       path: components/tdisplays3
       type: git
-    version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
+    version: 49fe7936c1abee730f29ab6f446887c9b123c305
   urwrstkn8mare/icm20948:
-    component_hash: 47b79dad79c5eef8dba54962fcea2662e25def10e79c391a4f6ab83a81a9f0ec
+    component_hash: bf572f1ef9c4c02544f91284fc7e57ab9e12ee6f5d2b53f5f56f4d16d34bf4bb
     dependencies:
     - name: idf
       version: '>=5.0'
@@ -80,7 +80,7 @@ dependencies:
       git: https://github.com/urwrstkn8mare/icm20948.git
       path: .
       type: git
-    version: 2291deea2040778b482cfd39a2f425b029330145
+    version: 36491f3e19c23a024a439c9cd37f733962eff4b2
 direct_dependencies:
 - a02yyuw
 - espressif/button
@@ -89,6 +89,6 @@ direct_dependencies:
 - lvgl/lvgl
 - tdisplays3
 - urwrstkn8mare/icm20948
-manifest_hash: 655c585b9b1374a123e5a64b54981188d01199e1097cbb1d20faa64a5b7ef9bf
+manifest_hash: 224f9120e3fb09702a751fb7f472b13471cb08773089d1836fef6bf81cd85a44
 target: esp32s3
-version: 2.0.0
+version: 3.0.0

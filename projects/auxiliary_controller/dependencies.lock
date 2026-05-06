@@ -40,7 +40,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.3
+    version: 6.0.1
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -49,7 +49,7 @@ dependencies:
       type: service
     version: 9.5.0
   minmea:
-    component_hash: f1645eaa8c7ced88809b64fe3a08c839408d9dca23a9286c6c3193b1dfa51e80
+    component_hash: 1ad632dc0b148456c0aee536dacb9a5a28672e60103e3f194478979c28e08892
     dependencies:
     - name: idf
       version: '>=5.0'
@@ -57,9 +57,9 @@ dependencies:
       git: https://github.com/urwrstkn8mare/minmea.git
       path: .
       type: git
-    version: afe9591f71853c5c620a3dfd2f269571041e6f68
+    version: ff9a7dd5a3a16d2438a5892a5f8dce21185c8bd2
   tdisplays3:
-    component_hash: 48908329a6c656edf9800e883bbac6daa51bd2fc79c3652e906a82e0a6a4e655
+    component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
     dependencies:
     - name: espressif/esp_lvgl_port
       version: ^2.6.2
@@ -72,11 +72,11 @@ dependencies:
       git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
       path: components/tdisplays3
       type: git
-    version: 4bbac4ad07d681b0ba6378ff33f397b9c9e7a56c
+    version: 49fe7936c1abee730f29ab6f446887c9b123c305
 direct_dependencies:
 - idf
 - minmea
 - tdisplays3
 manifest_hash: 8c250e14839415149e857cd041096ef1101bcd2419c6f8996876393d5c9f8a3a
 target: esp32s3
-version: 2.0.0
+version: 3.0.0

@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
 dependencies:
   a02yyuw:
-    git: https://github.com/SiriusBrightstar/ESP_IDF_A02YYUW.git
+    git: https://github.com/urwrstkn8mare/ESP_IDF_A02YYUW.git
     path: components/a02yyuw

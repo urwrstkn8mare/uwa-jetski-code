@@ -8,7 +8,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "can.h"
 #include "can_ids.h"
@@ -42,21 +41,6 @@ static int64_t s_last_uart_line_us;
 
 static char s_prev_uart_sentence[104];
 static char s_last_uart_sentence[104];
-
-static bool gps_local_time_rules_are_utc(void) {
-  time_t now = time(NULL);
-  if (now == (time_t)-1) {
-    return false;
-  }
-  struct tm local_tm = {0};
-  struct tm utc_tm = {0};
-  if (localtime_r(&now, &local_tm) == NULL || gmtime_r(&now, &utc_tm) == NULL) {
-    return false;
-  }
-  return local_tm.tm_year == utc_tm.tm_year && local_tm.tm_mon == utc_tm.tm_mon &&
-         local_tm.tm_mday == utc_tm.tm_mday && local_tm.tm_hour == utc_tm.tm_hour &&
-         local_tm.tm_min == utc_tm.tm_min && local_tm.tm_sec == utc_tm.tm_sec && local_tm.tm_isdst == 0;
-}
 
 static void gps_sanitize_line(char *dst, size_t dst_sz, const char *src) {
   if (dst_sz == 0) {
@@ -335,10 +319,6 @@ void gps_init(void) {
   started = true;
   if (s_mux == NULL) {
     s_mux = xSemaphoreCreateMutex();
-  }
-  if (!gps_local_time_rules_are_utc()) {
-    ESP_LOGW(TAG,
-             "System local timezone is not UTC; minmea timegm->mktime fallback requires UTC for correct GPS epoch conversion");
   }
   xTaskCreate(gps_uart_task, "gps_uart", 8192, NULL, 5, NULL);
   ESP_LOGI(TAG, "GPS UART task port %d RX GPIO %d %u baud (TX %s)", CONFIG_GPS_UART_PORT_NUM,
