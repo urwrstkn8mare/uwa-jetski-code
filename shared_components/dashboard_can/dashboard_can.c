@@ -4,6 +4,7 @@
 #include "can_ids.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -28,8 +29,8 @@ static int16_t s_yaw_deg;
 static int16_t s_height_cm;
 static int16_t s_servo_a_deg;
 static int16_t s_servo_b_deg;
-static int16_t s_speed_kmh_x10;
-static int16_t s_heading_cdeg;
+static float s_speed_knots;
+static float s_heading_deg;
 static uint16_t s_pot_pct;
 
 static bool s_have_attitude;
@@ -67,14 +68,14 @@ static void paint_gps_vel(void) {
   if (s_ui == NULL || !s_have_gps_vel) {
     return;
   }
-  dashboard_ui_set_speed(s_ui, (int32_t)(s_speed_kmh_x10 / 10));
+  dashboard_ui_set_speed(s_ui, (int32_t)lroundf(s_speed_knots * 1.852f));
   /* Use GPS heading only if attitude hasn't set it recently. */
   if (!s_have_attitude) {
-    int32_t h = (int32_t)(s_heading_cdeg / 100);
+    int32_t h = (int32_t)lroundf(s_heading_deg);
+    h %= 360;
     if (h < 0) {
       h += 360;
     }
-    h %= 360;
     dashboard_ui_set_attitude(s_ui, 0, 0, h);
   }
 }
@@ -117,8 +118,8 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     with_lock(paint_servo);
     break;
   case CAN_ID_GPS_VELOCITY:
-    memcpy(&s_speed_kmh_x10, &buffer[0], sizeof(s_speed_kmh_x10));
-    memcpy(&s_heading_cdeg, &buffer[2], sizeof(s_heading_cdeg));
+    memcpy(&s_speed_knots, &buffer[0], sizeof(s_speed_knots));
+    memcpy(&s_heading_deg, &buffer[4], sizeof(s_heading_deg));
     s_have_gps_vel = true;
     with_lock(paint_gps_vel);
     break;

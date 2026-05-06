@@ -74,21 +74,15 @@ static size_t aux_line_can(char *buf, size_t cap, void *ctx) {
   return (n > 0) ? (size_t)n : 0;
 }
 
-static size_t aux_line_gps_nav(char *buf, size_t cap, void *ctx) {
+static size_t aux_line_gps(char *buf, size_t cap, void *ctx) {
   (void)ctx;
-  return gps_status_navigation_write(buf, cap);
-}
-
-static size_t aux_line_gps_uart(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  return gps_status_uart_dump_write(buf, cap);
+  return gps_status_write(buf, cap);
 }
 
 static const lvgl_status_line_t AUX_STATUS_LINES[] = {
     {.write = aux_line_rudder, .ctx = NULL},
     {.write = aux_line_can, .ctx = NULL},
-    {.write = aux_line_gps_nav, .ctx = NULL},
-    {.write = aux_line_gps_uart, .ctx = NULL},
+    {.write = aux_line_gps, .ctx = NULL},
 };
 
 static void auxiliary_status_display_init(void) {

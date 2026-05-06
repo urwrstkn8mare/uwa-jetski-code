@@ -1,4 +1,3 @@
 dependencies:
-  minmea:
-    git: https://github.com/urwrstkn8mare/minmea.git
-    version: master
+  lwgps:
+    path: /home/samit/Developer/lwgps
