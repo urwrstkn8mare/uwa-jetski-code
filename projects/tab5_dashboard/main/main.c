@@ -82,6 +82,7 @@ static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *use
   return NULL;
 }
 
+#if !CONFIG_TAB5_DASHBOARD_FEED_MODE_DEMO
 static esp_err_t tab5_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
   const uint32_t timeout = (timeout_ms < 0) ? (uint32_t)portMAX_DELAY : (uint32_t)timeout_ms;
@@ -92,6 +93,16 @@ static void tab5_can_unlock(void *ctx) {
   (void)ctx;
   bsp_display_unlock();
 }
+
+static size_t can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
+  (void)user;
+  if (buffer == NULL || len == 0) {
+    return 0;
+  }
+  int n = snprintf(buffer, len, "CAN unavailable");
+  return (n > 0) ? (size_t)n : 0;
+}
+#endif
 
 static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
   (void)user;
@@ -105,15 +116,6 @@ static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
     return 0;
   }
   return (size_t)n;
-}
-
-static size_t can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
-  }
-  int n = snprintf(buffer, len, "CAN unavailable");
-  return (n > 0) ? (size_t)n : 0;
 }
 
 typedef struct {
@@ -240,4 +242,3 @@ void app_main(void) {
 
   bsp_display_unlock();
 }
-

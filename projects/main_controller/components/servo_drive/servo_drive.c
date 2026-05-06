@@ -114,14 +114,6 @@ void servo_drive_get_pulse_us(uint32_t *ch0_us_out, uint32_t *ch1_us_out) {
   }
 }
 
-bool servo_drive_get_feedback_us(uint8_t channel, uint16_t *pulse_us_out) {
-  if (pulse_us_out == NULL) {
-    return s_ready;
-  }
-  *pulse_us_out = (uint16_t)((channel == 0) ? s_ch0_us : s_ch1_us);
-  return s_ready;
-}
-
 size_t servo_drive_status_line_write(char *buf, size_t cap) {
   if (buf == NULL || cap == 0) {
     return 0;

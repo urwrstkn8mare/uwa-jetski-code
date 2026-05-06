@@ -3,7 +3,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "priv_include"
     REQUIRES esp_lcd driver
-    PRIV_REQUIRES lvgl__lvgl espressif__esp_lvgl_adapter espressif__esp_mmap_assets espressif__esp_lv_fs
+    PRIV_REQUIRES esp_common lvgl__lvgl espressif__esp_lvgl_adapter espressif__esp_mmap_assets espressif__esp_lv_fs
 )
 
 set(FONT_REGULAR_URL "https://raw.githubusercontent.com/displaay/Azeret/main/fonts/ttf/AzeretMono-Regular.ttf")

@@ -143,8 +143,6 @@ struct dashboard_ui {
   control_surface_card_t elevon_right;
   int32_t h_res;
   int32_t v_res;
-  bool has_last_data;
-  dashboard_data_t last_data;
 };
 
 static const int32_t s_attitude_ticks[ATTITUDE_TICK_COUNT] = {30, 20, 10, -10,
@@ -1226,57 +1224,4 @@ void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t righ
   }
   control_surface_card_set_val(&ui->elevon_left, left_deg);
   control_surface_card_set_val(&ui->elevon_right, right_deg);
-}
-
-void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
-  if (ui == NULL || data == NULL) {
-    return;
-  }
-
-  if (!ui->has_last_data || ui->last_data.speed_kmh != data->speed_kmh) {
-    speed_card_set_val(&ui->speed, data->speed_kmh, 100);
-  }
-  if (!ui->has_last_data || ui->last_data.height_cm != data->height_cm ||
-      ui->last_data.height_target_cm != data->height_target_cm) {
-    height_card_set_val(&ui->height, data->height_cm, data->height_target_cm, 50);
-  }
-  if (!ui->has_last_data || ui->last_data.roll_deg != data->roll_deg ||
-      ui->last_data.pitch_deg != data->pitch_deg ||
-      ui->last_data.heading_deg != data->heading_deg) {
-    attitude_card_set_val(&ui->attitude, data->roll_deg, data->pitch_deg, data->heading_deg);
-  }
-  if (!ui->has_last_data || ui->last_data.battery_percent != data->battery_percent ||
-      ui->last_data.battery_voltage_v != data->battery_voltage_v ||
-      ui->last_data.battery_current_a != data->battery_current_a ||
-      ui->last_data.battery_temp_c != data->battery_temp_c) {
-    battery_card_set_val(&ui->battery, data->battery_percent, data->battery_voltage_v,
-                         data->battery_current_a, data->battery_temp_c);
-  }
-  if (!ui->has_last_data || ui->last_data.motor_count != data->motor_count) {
-    for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
-      motor_card_set_val(&ui->motors[i], data->motor_percent[i],
-                          data->motor_power_kw_x10[i], data->motor_rpm[i], data->motor_temp_c[i]);
-    }
-  } else {
-    for (int32_t i = 0; i < data->motor_count && i < DASHBOARD_MOTOR_MAX; i++) {
-      if (ui->last_data.motor_percent[i] != data->motor_percent[i] ||
-          ui->last_data.motor_power_kw_x10[i] != data->motor_power_kw_x10[i] ||
-          ui->last_data.motor_rpm[i] != data->motor_rpm[i] ||
-          ui->last_data.motor_temp_c[i] != data->motor_temp_c[i]) {
-        motor_card_set_val(&ui->motors[i], data->motor_percent[i],
-                            data->motor_power_kw_x10[i], data->motor_rpm[i], data->motor_temp_c[i]);
-      }
-    }
-  }
-  if (!ui->has_last_data || ui->last_data.rudder_deg != data->rudder_deg) {
-    control_surface_card_set_val(&ui->rudder, data->rudder_deg);
-  }
-  if (!ui->has_last_data || ui->last_data.elevon_left_deg != data->elevon_left_deg ||
-      ui->last_data.elevon_right_deg != data->elevon_right_deg) {
-    control_surface_card_set_val(&ui->elevon_left, data->elevon_left_deg);
-    control_surface_card_set_val(&ui->elevon_right, data->elevon_right_deg);
-  }
-
-  ui->last_data = *data;
-  ui->has_last_data = true;
 }

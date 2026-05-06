@@ -215,10 +215,6 @@ esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
     return ESP_OK;
 }
 
-esp_err_t imu_get_pitch_roll(float *pitch, float *roll) {
-    return imu_get_pitch_roll_yaw(pitch, roll, NULL);
-}
-
 size_t imu_status_line_write(char *buf, size_t cap) {
     if (buf == NULL || cap == 0) {
         return 0;

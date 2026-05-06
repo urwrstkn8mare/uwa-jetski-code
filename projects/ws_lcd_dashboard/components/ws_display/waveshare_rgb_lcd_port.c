@@ -188,7 +188,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lcd_panel_handle_t *panel_out, uin
         },
     };
 
-    ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
+    ESP_RETURN_ON_ERROR(esp_lcd_new_rgb_panel(&panel_config, &panel_handle), TAG,
+                        "failed to create RGB LCD panel");
 
     esp_err_t err = prepare_board_power();
     if (err != ESP_OK) {

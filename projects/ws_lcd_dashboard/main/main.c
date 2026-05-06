@@ -27,6 +27,7 @@ static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *u
   return (err == ESP_OK) ? font : NULL;
 }
 
+#if !CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
 /* dashboard_can_attach() expects a lock function. */
 static esp_err_t ws_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
@@ -37,6 +38,17 @@ static void ws_can_unlock(void *ctx) {
   (void)ctx;
   ws_display_unlock();
 }
+
+static size_t can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
+  (void)user;
+  if (buffer == NULL || len == 0) {
+    return 0;
+  }
+
+  int n = snprintf(buffer, len, "CAN unavailable");
+  return (n > 0) ? (size_t)n : 0;
+}
+#endif
 
 static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
   (void)user;
@@ -50,15 +62,6 @@ static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
     return 0;
   }
   return (size_t)n;
-}
-
-static size_t can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
-  }
-  int n = snprintf(buffer, len, "CAN unavailable");
-  return (n > 0) ? (size_t)n : 0;
 }
 
 typedef struct {
@@ -159,7 +162,7 @@ void app_main(void) {
       {.write = demo_status_strip_write, .ctx = NULL},
   };
   ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1,
-                                             250, 64));
+                                              250, 64));
 #else
   ESP_ERROR_CHECK(dashboard_can_attach(s_ui, ws_can_lock, ws_can_unlock, NULL));
   lvgl_status_line_t lines[1] = {{0}};
@@ -175,9 +178,8 @@ void app_main(void) {
 
   /* Refresh CAN strip periodically without requiring LVGL redraw knowledge. */
   ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1,
-                                             250, 96));
+                                              250, 96));
 #endif
 
   ws_display_unlock();
 }
-

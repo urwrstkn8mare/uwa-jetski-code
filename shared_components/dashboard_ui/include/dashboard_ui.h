@@ -6,7 +6,7 @@
 
 #define DASHBOARD_MOTOR_MAX 2
 
-/* Complete dashboard state. Fill this struct and pass to dashboard_ui_set_data().
+/* Complete dashboard state shared by the demo and CAN update paths.
  * All angles are in degrees; all temperatures in Celsius. */
 typedef struct {
   int32_t speed_kmh;              /**< 0..100 */
@@ -36,7 +36,6 @@ typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *us
 dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
                                   void *font_get_user_data);
 void dashboard_ui_destroy(dashboard_ui_t *ui);
-void dashboard_ui_set_data(dashboard_ui_t *ui, const dashboard_data_t *data);
 
 /* Per-box partial updates — use these when only a subset of data changes
  * to avoid redundant LVGL redraws of untouched cards. */

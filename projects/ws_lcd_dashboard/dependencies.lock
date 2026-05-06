@@ -179,7 +179,7 @@ dependencies:
       type: service
     version: 1.0.2
   espressif/libpng:
-    component_hash: 940ea54356129e5252b8ed50bc535fdce2836d09815e8c362595b5d538471f48
+    component_hash: 30b1f2f8ddf13754b3e21d7ac134b3cc8f02957bb01d0c6deb5e9a68080d69d5
     dependencies:
     - name: idf
       require: private
@@ -191,7 +191,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.6.56
+    version: 1.6.58
   espressif/zlib:
     component_hash: 64ea2fd6754c5a05951f1ddb312ac835cd782e68cb5bd9dfcd1c3a107c8fbfbc
     dependencies:
