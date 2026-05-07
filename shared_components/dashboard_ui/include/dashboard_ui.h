@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "esp_err.h"
 #include "lvgl.h"
 
 #define DASHBOARD_MOTOR_MAX 2
@@ -29,8 +30,6 @@ typedef struct {
   int32_t elevon_right_deg;      /**< -15..15 */
 } dashboard_data_t;
 
-typedef struct dashboard_ui dashboard_ui_t;
-
 typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *user_data);
 
 /* Display lock callbacks: acquire and release the display lock before/after LVGL operations.
@@ -48,20 +47,25 @@ typedef struct {
   dashboard_ui_unlock_fn_t unlock_cb;    /**< Display lock release function (required) */
 } dashboard_ui_cfg_t;
 
-dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg);
-void dashboard_ui_destroy(dashboard_ui_t *ui);
+/* Initialize the singleton dashboard_ui instance.
+ * Can only be called once; subsequent calls return ESP_ERR_INVALID_STATE.
+ * Must be paired with dashboard_ui_destroy(). */
+esp_err_t dashboard_ui_init(const dashboard_ui_cfg_t *cfg);
+
+/* Clean up the singleton dashboard_ui instance. */
+void dashboard_ui_destroy(void);
 
 /* Apply a full dashboard snapshot through the per-box setters.
  * Each setter automatically acquires the display lock. */
-void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data);
+void dashboard_ui_apply_data(const dashboard_data_t *data);
 
 /* Per-box partial updates — use these when only a subset of data changes
  * to avoid redundant LVGL redraws of untouched cards.
  * Each function automatically acquires the display lock internally. */
-void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh);
-void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm);
-void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg);
-void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c);
-void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c);
-void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg);
-void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg);
+void dashboard_ui_set_speed(int32_t speed_kmh);
+void dashboard_ui_set_height(int32_t height_cm, int32_t height_target_cm);
+void dashboard_ui_set_attitude(int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg);
+void dashboard_ui_set_battery(int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c);
+void dashboard_ui_set_motor(int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c);
+void dashboard_ui_set_rudder(int32_t rudder_deg);
+void dashboard_ui_set_elevons(int32_t left_deg, int32_t right_deg);

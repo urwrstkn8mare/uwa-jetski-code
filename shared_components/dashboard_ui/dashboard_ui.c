@@ -35,8 +35,6 @@ typedef enum {
   kUiThrottleCount,
 } ui_throttle_t;
 
-static bool ui_throttle_ok(dashboard_ui_t *ui, ui_throttle_t t);
-
 enum {
   HEIGHT_TRACK_X = 54,
   HEIGHT_TRACK_Y = 38,
@@ -120,7 +118,8 @@ typedef struct {
   int32_t card_h;
 } control_surface_card_t;
 
-struct dashboard_ui {
+/* Singleton instance */
+typedef struct {
   lv_obj_t *root;
   speed_card_t speed;
   height_card_t height;
@@ -135,17 +134,17 @@ struct dashboard_ui {
   int64_t last_update_us[kUiThrottleCount];
   dashboard_ui_lock_fn_t lock_cb;
   dashboard_ui_unlock_fn_t unlock_cb;
-};
+  bool initialized;
+} dashboard_ui_t;
 
-static bool ui_throttle_ok(dashboard_ui_t *ui, ui_throttle_t t) {
+static dashboard_ui_t s_dashboard_ui = {0};
+
+static bool ui_throttle_ok(ui_throttle_t t) {
   const int hz = (CONFIG_DASHBOARD_UI_THROTTLE_HZ > 0) ? CONFIG_DASHBOARD_UI_THROTTLE_HZ : 1;
   const int64_t min_dt = 1000000LL / (int64_t)hz;
   const int64_t now = esp_timer_get_time();
-  if (ui == NULL) {
-    return false;
-  }
-  if (ui->last_update_us[t] == 0 || (now - ui->last_update_us[t]) >= min_dt) {
-    ui->last_update_us[t] = now;
+  if (s_dashboard_ui.last_update_us[t] == 0 || (now - s_dashboard_ui.last_update_us[t]) >= min_dt) {
+    s_dashboard_ui.last_update_us[t] = now;
     return true;
   }
   return false;
@@ -1033,10 +1032,19 @@ static void control_surface_card_set_val(control_surface_card_t *card,
   }
 }
 
-dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
+esp_err_t dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
   if (cfg == NULL || cfg->screen == NULL || cfg->lock_cb == NULL || cfg->unlock_cb == NULL) {
-    return NULL;
+    return ESP_ERR_INVALID_ARG;
   }
+
+  if (s_dashboard_ui.initialized) {
+    ESP_LOGW(TAG, "dashboard_ui already initialized");
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  /* Reset singleton state */
+  dashboard_ui_t ui_temp = {0};
+  s_dashboard_ui = ui_temp;
 
   lv_obj_t *screen = cfg->screen;
   lv_display_t *disp = lv_display_get_default();
@@ -1052,35 +1060,28 @@ dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
   init_dashboard_fonts(cfg->font_get_cb, cfg->font_get_user_data);
   configure_screen(screen);
 
-  dashboard_ui_t *ui = calloc(1, sizeof(*ui));
-  if (ui == NULL) {
-    ESP_LOGE(TAG, "Failed to allocate dashboard UI state");
-    return NULL;
-  }
-
   /* Store lock callbacks */
-  ui->lock_cb = cfg->lock_cb;
-  ui->unlock_cb = cfg->unlock_cb;
+  s_dashboard_ui.lock_cb = cfg->lock_cb;
+  s_dashboard_ui.unlock_cb = cfg->unlock_cb;
 
-  /* Reset primitive throttles for this UI instance. */
+  /* Reset primitive throttles */
   for (size_t i = 0; i < (size_t)kUiThrottleCount; i++) {
-    ui->last_update_us[i] = 0;
+    s_dashboard_ui.last_update_us[i] = 0;
   }
 
   int32_t ui_h_res = h_res;
   int32_t ui_v_res = v_res;
 
-  ui->h_res = ui_h_res;
-  ui->v_res = ui_v_res;
+  s_dashboard_ui.h_res = ui_h_res;
+  s_dashboard_ui.v_res = ui_v_res;
 
-  ui->root = create_dashboard_root(screen, ui_h_res, ui_v_res);
-  if (ui->root == NULL) {
+  s_dashboard_ui.root = create_dashboard_root(screen, ui_h_res, ui_v_res);
+  if (s_dashboard_ui.root == NULL) {
     ESP_LOGE(TAG, "Failed to create dashboard root container");
-    free(ui);
-    return NULL;
+    return ESP_FAIL;
   }
 
-  lv_obj_set_pos(ui->root, 0, 0);
+  lv_obj_set_pos(s_dashboard_ui.root, 0, 0);
 
   /* Compute exact card widths so each row fills the display width.
      With pad_column=-1, adjacent cards overlap by 1 px, so the total
@@ -1102,183 +1103,189 @@ dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
   }
   int32_t row2_h = row1_base / 2;
 
-  ui->speed = create_speed_card(ui->root, row1_w[0], row1_w[0]);
-  ui->height = create_height_card(ui->root, row1_w[1], row1_w[1]);
-  ui->attitude = create_attitude_card(ui->root, row1_w[2], row1_w[2]);
-  ui->battery = create_battery_card(ui->root, row2_w[0], row2_h);
-  ui->motors[0] = create_motor_card(ui->root, row2_w[1], row2_h);
-  ui->motors[1] = create_motor_card(ui->root, row2_w[2], row2_h);
-  ui->rudder = create_control_surface_card(ui->root, row2_w[3], row2_h,
+  s_dashboard_ui.speed = create_speed_card(s_dashboard_ui.root, row1_w[0], row1_w[0]);
+  s_dashboard_ui.height = create_height_card(s_dashboard_ui.root, row1_w[1], row1_w[1]);
+  s_dashboard_ui.attitude = create_attitude_card(s_dashboard_ui.root, row1_w[2], row1_w[2]);
+  s_dashboard_ui.battery = create_battery_card(s_dashboard_ui.root, row2_w[0], row2_h);
+  s_dashboard_ui.motors[0] = create_motor_card(s_dashboard_ui.root, row2_w[1], row2_h);
+  s_dashboard_ui.motors[1] = create_motor_card(s_dashboard_ui.root, row2_w[2], row2_h);
+  s_dashboard_ui.rudder = create_control_surface_card(s_dashboard_ui.root, row2_w[3], row2_h,
                                             "RUDDER", false);
-  ui->elevon_left = create_control_surface_card(ui->root, row2_w[4], row2_h,
+  s_dashboard_ui.elevon_left = create_control_surface_card(s_dashboard_ui.root, row2_w[4], row2_h,
                                                   "L ELEVON", true);
-  ui->elevon_right = create_control_surface_card(ui->root, row2_w[5], row2_h,
+  s_dashboard_ui.elevon_right = create_control_surface_card(s_dashboard_ui.root, row2_w[5], row2_h,
                                                    "R ELEVON", true);
 
-  if (ui->speed.root == NULL || ui->height.root == NULL || ui->attitude.root == NULL ||
-      ui->battery.root == NULL || ui->motors[0].root == NULL || ui->motors[1].root == NULL ||
-      ui->rudder.root == NULL || ui->elevon_left.root == NULL || ui->elevon_right.root == NULL) {
+  if (s_dashboard_ui.speed.root == NULL || s_dashboard_ui.height.root == NULL ||
+      s_dashboard_ui.attitude.root == NULL || s_dashboard_ui.battery.root == NULL ||
+      s_dashboard_ui.motors[0].root == NULL || s_dashboard_ui.motors[1].root == NULL ||
+      s_dashboard_ui.rudder.root == NULL || s_dashboard_ui.elevon_left.root == NULL ||
+      s_dashboard_ui.elevon_right.root == NULL) {
     ESP_LOGE(TAG, "Failed to create one or more dashboard cards");
-    dashboard_ui_destroy(ui);
-    return NULL;
+    dashboard_ui_destroy();
+    return ESP_FAIL;
   }
 
-  return ui;
+  s_dashboard_ui.initialized = true;
+  return ESP_OK;
 }
 
-void dashboard_ui_destroy(dashboard_ui_t *ui) {
-  if (ui == NULL) {
+void dashboard_ui_destroy(void) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
 
-  if (ui->root != NULL) {
-    lv_obj_delete(ui->root);
-    ui->root = NULL;
+  if (s_dashboard_ui.root != NULL) {
+    lv_obj_delete(s_dashboard_ui.root);
+    s_dashboard_ui.root = NULL;
   }
 
-  if (ui->attitude.draw_buf_mem != NULL) {
-    heap_caps_free(ui->attitude.draw_buf_mem);
-    ui->attitude.draw_buf_mem = NULL;
+  if (s_dashboard_ui.attitude.draw_buf_mem != NULL) {
+    heap_caps_free(s_dashboard_ui.attitude.draw_buf_mem);
+    s_dashboard_ui.attitude.draw_buf_mem = NULL;
   }
 
-  free(ui);
+  memset(&s_dashboard_ui, 0, sizeof(s_dashboard_ui));
 }
 
-void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
-  if (ui == NULL) {
+void dashboard_ui_set_speed(int32_t speed_kmh) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
-  if (!ui_throttle_ok(ui, kUiSpeed)) {
+  if (!ui_throttle_ok(kUiSpeed)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  speed_card_set_val(&ui->speed, speed_kmh, 100);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
-  }
-}
-
-void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm) {
-  if (ui == NULL) {
-    return;
-  }
-  if (!ui_throttle_ok(ui, kUiHeight)) {
-    return;
-  }
-  if (ui->lock_cb) {
-    ui->lock_cb();
-  }
-  height_card_set_val(&ui->height, height_cm, height_target_cm, 50);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  speed_card_set_val(&s_dashboard_ui.speed, speed_kmh, 100);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg) {
-  if (ui == NULL) {
+void dashboard_ui_set_height(int32_t height_cm, int32_t height_target_cm) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
-  if (!ui_throttle_ok(ui, kUiAttitude)) {
+  if (!ui_throttle_ok(kUiHeight)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  attitude_card_set_val(&ui->attitude, roll_deg, pitch_deg, heading_deg);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  height_card_set_val(&s_dashboard_ui.height, height_cm, height_target_cm, 50);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c) {
-  if (ui == NULL) {
+void dashboard_ui_set_attitude(int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
-  if (!ui_throttle_ok(ui, kUiBattery)) {
+  if (!ui_throttle_ok(kUiAttitude)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  battery_card_set_val(&ui->battery, percent, voltage_v, current_a, temp_c);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  attitude_card_set_val(&s_dashboard_ui.attitude, roll_deg, pitch_deg, heading_deg);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c) {
-  if (ui == NULL || index < 0 || index >= DASHBOARD_MOTOR_MAX) {
+void dashboard_ui_set_battery(int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c) {
+  if (!s_dashboard_ui.initialized) {
+    return;
+  }
+  if (!ui_throttle_ok(kUiBattery)) {
+    return;
+  }
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
+  }
+  battery_card_set_val(&s_dashboard_ui.battery, percent, voltage_v, current_a, temp_c);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
+  }
+}
+
+void dashboard_ui_set_motor(int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c) {
+  if (!s_dashboard_ui.initialized) {
+    return;
+  }
+  if (index < 0 || index >= DASHBOARD_MOTOR_MAX) {
     return;
   }
   /* Motor updates tend to move together; throttle them as one logical section. */
-  if (index == 0 && !ui_throttle_ok(ui, kUiMotor0)) {
+  if (index == 0 && !ui_throttle_ok(kUiMotor0)) {
     return;
   }
-  if (index == 1 && !ui_throttle_ok(ui, kUiMotor1)) {
+  if (index == 1 && !ui_throttle_ok(kUiMotor1)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  motor_card_set_val(&ui->motors[index], percent, power_kw_x10, rpm, temp_c);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  motor_card_set_val(&s_dashboard_ui.motors[index], percent, power_kw_x10, rpm, temp_c);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
-  if (ui == NULL) {
+void dashboard_ui_set_rudder(int32_t rudder_deg) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
-  if (!ui_throttle_ok(ui, kUiRudder)) {
+  if (!ui_throttle_ok(kUiRudder)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  control_surface_card_set_val(&ui->rudder, rudder_deg);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  control_surface_card_set_val(&s_dashboard_ui.rudder, rudder_deg);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg) {
-  if (ui == NULL) {
+void dashboard_ui_set_elevons(int32_t left_deg, int32_t right_deg) {
+  if (!s_dashboard_ui.initialized) {
     return;
   }
-  if (!ui_throttle_ok(ui, kUiElevons)) {
+  if (!ui_throttle_ok(kUiElevons)) {
     return;
   }
-  if (ui->lock_cb) {
-    ui->lock_cb();
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb();
   }
-  control_surface_card_set_val(&ui->elevon_left, left_deg);
-  control_surface_card_set_val(&ui->elevon_right, right_deg);
-  if (ui->unlock_cb) {
-    ui->unlock_cb();
+  control_surface_card_set_val(&s_dashboard_ui.elevon_left, left_deg);
+  control_surface_card_set_val(&s_dashboard_ui.elevon_right, right_deg);
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
   }
 }
 
-void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
-  if (ui == NULL || data == NULL) {
+void dashboard_ui_apply_data(const dashboard_data_t *data) {
+  if (!s_dashboard_ui.initialized || data == NULL) {
     return;
   }
 
-  dashboard_ui_set_speed(ui, data->speed_kmh);
-  dashboard_ui_set_height(ui, data->height_cm, data->height_target_cm);
-  dashboard_ui_set_attitude(ui, data->roll_deg, data->pitch_deg, data->heading_deg);
-  dashboard_ui_set_battery(ui, data->battery_percent, data->battery_voltage_v,
+  dashboard_ui_set_speed(data->speed_kmh);
+  dashboard_ui_set_height(data->height_cm, data->height_target_cm);
+  dashboard_ui_set_attitude(data->roll_deg, data->pitch_deg, data->heading_deg);
+  dashboard_ui_set_battery(data->battery_percent, data->battery_voltage_v,
                             data->battery_current_a, data->battery_temp_c);
 
   const int32_t motor_count = (data->motor_count < 0) ? 0 : data->motor_count;
   const int32_t max_motors = (motor_count > DASHBOARD_MOTOR_MAX) ? DASHBOARD_MOTOR_MAX : motor_count;
   for (int32_t i = 0; i < max_motors; i++) {
-    dashboard_ui_set_motor(ui, i, data->motor_percent[i], data->motor_power_kw_x10[i],
+    dashboard_ui_set_motor(i, data->motor_percent[i], data->motor_power_kw_x10[i],
                               data->motor_rpm[i], data->motor_temp_c[i]);
   }
 
-  dashboard_ui_set_rudder(ui, data->rudder_deg);
-  dashboard_ui_set_elevons(ui, data->elevon_left_deg, data->elevon_right_deg);
+  dashboard_ui_set_rudder(data->rudder_deg);
+  dashboard_ui_set_elevons(data->elevon_left_deg, data->elevon_right_deg);
 }

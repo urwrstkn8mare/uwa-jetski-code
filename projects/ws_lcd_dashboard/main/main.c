@@ -17,9 +17,6 @@
 
 static const char *TAG = "ws_lcd_main";
 
-static dashboard_ui_t *s_ui;
-static status_ui_t s_strip;
-
 static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *user_data) {
   (void)user_data;
   const lv_font_t *font = NULL;
@@ -48,30 +45,26 @@ static void ws_can_unlock(void *ctx) {
 
 #if CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
 typedef struct {
-  dashboard_ui_t *ui;
   uint32_t start_ms;
 } demo_ctx_t;
 
 static demo_ctx_t s_demo_ctx;
 
 static void demo_status_timer_cb(lv_timer_t *timer) {
-  status_ui_t *disp = lv_timer_get_user_data(timer);
-  if (disp == NULL) {
-    return;
-  }
+  (void)timer;
   const int hz = (CONFIG_WS_LCD_DASHBOARD_DEMO_HZ > 0) ? CONFIG_WS_LCD_DASHBOARD_DEMO_HZ : 1;
-  status_ui_update(disp, "Demo", "DEMO %dHz", hz);
+  status_ui_update("Demo", "DEMO %dHz", hz);
 }
 
 static void demo_timer_cb(lv_timer_t *timer) {
   demo_ctx_t *ctx = lv_timer_get_user_data(timer);
-  if (ctx == NULL || ctx->ui == NULL) {
+  if (ctx == NULL) {
     lv_timer_pause(timer);
     return;
   }
 
   const uint32_t elapsed_ms = lv_tick_elaps(ctx->start_ms);
-  dashboard_demo_update_ui(ctx->ui, elapsed_ms);
+  dashboard_demo_update_ui(elapsed_ms);
 }
 #endif
 
@@ -107,22 +100,21 @@ void app_main(void) {
       .lock_cb = ws_lcd_status_lock,
       .unlock_cb = ws_lcd_status_unlock,
   };
-  s_ui = dashboard_ui_init(&ui_cfg);
-  if (s_ui == NULL) {
-    ESP_LOGE(TAG, "Failed to initialise dashboard_ui");
+  esp_err_t ui_err = dashboard_ui_init(&ui_cfg);
+  if (ui_err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to initialise dashboard_ui: %s", esp_err_to_name(ui_err));
     ws_display_unlock();
     return;
   }
 
 #if CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
-  s_demo_ctx.ui = s_ui;
   s_demo_ctx.start_ms = lv_tick_get();
 
   const uint32_t demo_hz = (CONFIG_WS_LCD_DASHBOARD_DEMO_HZ > 0) ? (uint32_t)CONFIG_WS_LCD_DASHBOARD_DEMO_HZ : 1u;
   const uint32_t demo_period_ms = (1000u + (demo_hz / 2u)) / demo_hz;
 
   (void)lv_timer_create(demo_timer_cb, demo_period_ms, &s_demo_ctx);
-  dashboard_demo_update_ui(s_ui, 0);
+  dashboard_demo_update_ui(0);
 
   const status_ui_cfg_t cfg = {
       .parent = screen,
@@ -135,12 +127,11 @@ void app_main(void) {
       .unlock_cb = ws_lcd_status_unlock,
       .min_interval_ms = 250,
   };
-  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+  ESP_ERROR_CHECK(status_ui_start(&cfg));
 
-  (void)lv_timer_create(demo_status_timer_cb, 250, &s_strip);
+  (void)lv_timer_create(demo_status_timer_cb, 250, NULL);
 #else
-  ESP_ERROR_CHECK(dashboard_can_attach(s_ui, ws_can_lock, ws_can_unlock, NULL,
-                                       status_ui_update, &s_strip));
+  ESP_ERROR_CHECK(dashboard_can_attach(ws_can_lock, ws_can_unlock, NULL));
 
   const status_ui_cfg_t cfg = {
       .parent = screen,
@@ -153,12 +144,12 @@ void app_main(void) {
       .unlock_cb = ws_lcd_status_unlock,
       .min_interval_ms = 250,
   };
-  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+  ESP_ERROR_CHECK(status_ui_start(&cfg));
 
   esp_err_t can_err = dashboard_can_start();
   if (can_err != ESP_OK) {
     ESP_LOGW(TAG, "CAN start failed: %s (UI will stay up)", esp_err_to_name(can_err));
-    status_ui_update(&s_strip, "CAN", "CAN off (TWAI down)");
+    status_ui_update("CAN", "CAN off (TWAI down)");
   }
 #endif
 
