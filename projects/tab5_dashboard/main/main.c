@@ -163,7 +163,14 @@ void app_main(void) {
   lv_obj_set_size(dashboard_host, h_res, dashboard_h);
   lv_obj_set_style_bg_opa(dashboard_host, LV_OPA_TRANSP, 0);
 
-  s_ui = dashboard_ui_init(dashboard_host, tab5_font_get_cb, NULL);
+  const dashboard_ui_cfg_t ui_cfg = {
+      .screen = dashboard_host,
+      .font_get_cb = tab5_font_get_cb,
+      .font_get_user_data = NULL,
+      .lock_cb = tab5_status_lock,
+      .unlock_cb = tab5_status_unlock,
+  };
+  s_ui = dashboard_ui_init(&ui_cfg);
   if (s_ui == NULL) {
     ESP_LOGE(TAG, "Failed to initialise dashboard_ui");
     bsp_display_unlock();

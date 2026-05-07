@@ -33,15 +33,31 @@ typedef struct dashboard_ui dashboard_ui_t;
 
 typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *user_data);
 
-dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
-                                  void *font_get_user_data);
+/* Display lock callbacks: acquire and release the display lock before/after LVGL operations.
+ * This ensures thread-safe access to LVGL objects. */
+typedef void (*dashboard_ui_lock_fn_t)(void);
+typedef void (*dashboard_ui_unlock_fn_t)(void);
+
+/** Configuration for dashboard_ui initialization.
+ * Lock callbacks are required to ensure thread-safe LVGL access. */
+typedef struct {
+  lv_obj_t *screen;                      /**< Parent LVGL screen object (required) */
+  font_get_cb_t font_get_cb;             /**< Font loading callback (optional) */
+  void *font_get_user_data;              /**< User data for font callback (optional) */
+  dashboard_ui_lock_fn_t lock_cb;        /**< Display lock acquire function (required) */
+  dashboard_ui_unlock_fn_t unlock_cb;    /**< Display lock release function (required) */
+} dashboard_ui_cfg_t;
+
+dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg);
 void dashboard_ui_destroy(dashboard_ui_t *ui);
 
-/* Apply a full dashboard snapshot through the per-box setters. */
+/* Apply a full dashboard snapshot through the per-box setters.
+ * Each setter automatically acquires the display lock. */
 void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data);
 
 /* Per-box partial updates — use these when only a subset of data changes
- * to avoid redundant LVGL redraws of untouched cards. */
+ * to avoid redundant LVGL redraws of untouched cards.
+ * Each function automatically acquires the display lock internally. */
 void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh);
 void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm);
 void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg);

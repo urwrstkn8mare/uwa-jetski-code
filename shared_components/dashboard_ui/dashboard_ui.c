@@ -133,6 +133,8 @@ struct dashboard_ui {
   int32_t h_res;
   int32_t v_res;
   int64_t last_update_us[kUiThrottleCount];
+  dashboard_ui_lock_fn_t lock_cb;
+  dashboard_ui_unlock_fn_t unlock_cb;
 };
 
 static bool ui_throttle_ok(dashboard_ui_t *ui, ui_throttle_t t) {
@@ -1031,12 +1033,12 @@ static void control_surface_card_set_val(control_surface_card_t *card,
   }
 }
 
-dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
-                                  void *font_get_user_data) {
-  if (screen == NULL) {
+dashboard_ui_t *dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
+  if (cfg == NULL || cfg->screen == NULL || cfg->lock_cb == NULL || cfg->unlock_cb == NULL) {
     return NULL;
   }
 
+  lv_obj_t *screen = cfg->screen;
   lv_display_t *disp = lv_display_get_default();
   int32_t h_res = lv_obj_get_width(screen);
   int32_t v_res = lv_obj_get_height(screen);
@@ -1047,7 +1049,7 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
 
   ESP_LOGI(TAG, "Display resolution: %dx%d", (int)h_res, (int)v_res);
 
-  init_dashboard_fonts(font_get_cb, font_get_user_data);
+  init_dashboard_fonts(cfg->font_get_cb, cfg->font_get_user_data);
   configure_screen(screen);
 
   dashboard_ui_t *ui = calloc(1, sizeof(*ui));
@@ -1055,6 +1057,10 @@ dashboard_ui_t *dashboard_ui_init(lv_obj_t *screen, font_get_cb_t font_get_cb,
     ESP_LOGE(TAG, "Failed to allocate dashboard UI state");
     return NULL;
   }
+
+  /* Store lock callbacks */
+  ui->lock_cb = cfg->lock_cb;
+  ui->unlock_cb = cfg->unlock_cb;
 
   /* Reset primitive throttles for this UI instance. */
   for (size_t i = 0; i < (size_t)kUiThrottleCount; i++) {
@@ -1145,7 +1151,13 @@ void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
   if (!ui_throttle_ok(ui, kUiSpeed)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   speed_card_set_val(&ui->speed, speed_kmh, 100);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t height_target_cm) {
@@ -1155,7 +1167,13 @@ void dashboard_ui_set_height(dashboard_ui_t *ui, int32_t height_cm, int32_t heig
   if (!ui_throttle_ok(ui, kUiHeight)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   height_card_set_val(&ui->height, height_cm, height_target_cm, 50);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pitch_deg, int32_t heading_deg) {
@@ -1165,7 +1183,13 @@ void dashboard_ui_set_attitude(dashboard_ui_t *ui, int32_t roll_deg, int32_t pit
   if (!ui_throttle_ok(ui, kUiAttitude)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   attitude_card_set_val(&ui->attitude, roll_deg, pitch_deg, heading_deg);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c) {
@@ -1175,7 +1199,13 @@ void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t volta
   if (!ui_throttle_ok(ui, kUiBattery)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   battery_card_set_val(&ui->battery, percent, voltage_v, current_a, temp_c);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c) {
@@ -1189,7 +1219,13 @@ void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, 
   if (index == 1 && !ui_throttle_ok(ui, kUiMotor1)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   motor_card_set_val(&ui->motors[index], percent, power_kw_x10, rpm, temp_c);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
@@ -1199,7 +1235,13 @@ void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg) {
   if (!ui_throttle_ok(ui, kUiRudder)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   control_surface_card_set_val(&ui->rudder, rudder_deg);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg) {
@@ -1209,8 +1251,14 @@ void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t righ
   if (!ui_throttle_ok(ui, kUiElevons)) {
     return;
   }
+  if (ui->lock_cb) {
+    ui->lock_cb();
+  }
   control_surface_card_set_val(&ui->elevon_left, left_deg);
   control_surface_card_set_val(&ui->elevon_right, right_deg);
+  if (ui->unlock_cb) {
+    ui->unlock_cb();
+  }
 }
 
 void dashboard_ui_apply_data(dashboard_ui_t *ui, const dashboard_data_t *data) {
