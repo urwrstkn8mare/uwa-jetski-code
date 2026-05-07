@@ -19,6 +19,11 @@ esp_err_t status_ui_start(status_ui_t *disp,
   disp->unlock_cb = cfg->unlock_cb;
   disp->min_interval_ms = cfg->min_interval_ms;
 
+  /* Acquire lock before creating LVGL objects */
+  if (disp->lock_cb) {
+    disp->lock_cb();
+  }
+
   disp->container = lv_obj_create(cfg->parent);
   lv_obj_remove_style_all(disp->container);
   lv_obj_set_style_border_width(disp->container, 0, 0);
@@ -40,6 +45,11 @@ esp_err_t status_ui_start(status_ui_t *disp,
     lv_obj_align(disp->container, cfg->align, 0, 0);
   }
 
+  /* Release lock after creating LVGL objects */
+  if (disp->unlock_cb) {
+    disp->unlock_cb();
+  }
+
   return ESP_OK;
 }
 
@@ -59,7 +69,14 @@ void status_ui_stop(status_ui_t *disp) {
       disp->unlock_cb();
     }
   }
+  /* Acquire lock before deleting container */
+  if (disp->lock_cb) {
+    disp->lock_cb();
+  }
   lv_obj_delete(disp->container);
+  if (disp->unlock_cb) {
+    disp->unlock_cb();
+  }
   disp->container = NULL;
   memset(disp, 0, sizeof(*disp));
 }
