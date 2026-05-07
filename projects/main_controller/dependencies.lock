@@ -1,4 +1,12 @@
 dependencies:
+  a02yyuw:
+    component_hash: aacd059653d505cad866d29fedcc7c13f6def628f3306e724fa82d38e44219bb
+    dependencies: []
+    source:
+      git: https://github.com/urwrstkn8mare/ESP_IDF_A02YYUW.git
+      path: components/a02yyuw
+      type: git
+    version: 2f361fe58cb61ca4c67458cb4ffd57ed776f8e86
   espressif/button:
     component_hash: d0afa32f0e50d60bc0c6fc23f7eea98adc6b02cfe70b590bc52c23c506745287
     dependencies:
@@ -48,16 +56,6 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 9.5.0
-  lwgps:
-    component_hash: d4ebd687cab2d7c247322ad1b00a0558eec0c62ba0984806677474c7d9dbe72a
-    dependencies:
-    - name: idf
-      version: '>=5.0'
-    source:
-      git: https://github.com/urwrstkn8mare/lwgps.git
-      path: .
-      type: git
-    version: 8a9b705b9b15f87c970e00d87c26d0e05ad60ab9
   tdisplays3:
     component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
     dependencies:
@@ -73,10 +71,24 @@ dependencies:
       path: components/tdisplays3
       type: git
     version: 49fe7936c1abee730f29ab6f446887c9b123c305
+  urwrstkn8mare/icm20948:
+    component_hash: bf572f1ef9c4c02544f91284fc7e57ab9e12ee6f5d2b53f5f56f4d16d34bf4bb
+    dependencies:
+    - name: idf
+      version: '>=5.0'
+    source:
+      git: https://github.com/urwrstkn8mare/icm20948.git
+      path: .
+      type: git
+    version: 36491f3e19c23a024a439c9cd37f733962eff4b2
 direct_dependencies:
+- a02yyuw
+- espressif/button
+- espressif/esp_lvgl_port
 - idf
-- lwgps
+- lvgl/lvgl
 - tdisplays3
-manifest_hash: a76e6a43718bfc4e5d457a046b64582070e657c3c89f96443a6e13ba3dc1e8ef
+- urwrstkn8mare/icm20948
+manifest_hash: 224f9120e3fb09702a751fb7f472b13471cb08773089d1836fef6bf81cd85a44
 target: esp32s3
 version: 3.0.0
