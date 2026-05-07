@@ -1,6 +1,7 @@
 #include "servo_drive.h"
 
 #include "driver/ledc.h"
+#include "esp_check.h"
 #include "esp_log.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -9,8 +10,6 @@ static const char *TAG = "servo_pwm";
 static bool s_ready;
 static uint32_t s_ch0_us = 1500;
 static uint32_t s_ch1_us = 1500;
-static status_write_cb_t s_status_write = NULL;
-static void *s_status_write_ctx = NULL;
 
 static int16_t pulse_to_deg(int32_t pulse_us) { return (int16_t)((pulse_us - 1500) / 25); }
 
@@ -30,10 +29,7 @@ static uint32_t pulse_us_to_duty(uint32_t pulse_us) {
 
 bool servo_drive_is_ready(void) { return s_ready; }
 
-esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ctx) {
-  s_status_write = status_write;
-  s_status_write_ctx = status_write_ctx;
-
+esp_err_t servo_drive_init(void) {
   ledc_timer_config_t timer = {
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .duty_resolution = LEDC_TIMER_14_BIT,
@@ -42,9 +38,7 @@ esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ct
       .clk_cfg = LEDC_AUTO_CLK,
   };
   esp_err_t e = ledc_timer_config(&timer);
-  if (e != ESP_OK) {
-    return e;
-  }
+  ESP_RETURN_ON_ERROR(e, TAG, "timer config failed");
 
   ledc_channel_config_t ch0 = {
       .gpio_num = CONFIG_SERVO1_GPIO,
@@ -56,9 +50,7 @@ esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ct
       .hpoint = 0,
   };
   e = ledc_channel_config(&ch0);
-  if (e != ESP_OK) {
-    return e;
-  }
+  ESP_RETURN_ON_ERROR(e, TAG, "ch0 config failed");
 
   ledc_channel_config_t ch1 = {
       .gpio_num = CONFIG_SERVO2_GPIO,
@@ -70,14 +62,10 @@ esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ct
       .hpoint = 0,
   };
   e = ledc_channel_config(&ch1);
-  if (e != ESP_OK) {
-    return e;
-  }
+  ESP_RETURN_ON_ERROR(e, TAG, "ch1 config failed");
 
   s_ready = true;
-  if (s_status_write) {
-    s_status_write(s_status_write_ctx, "Servo", "S0:%" PRIu32 " S1:%" PRIu32, s_ch0_us, s_ch1_us);
-  }
+  status_ui_update("Servo", "S0:%" PRIu32 " S1:%" PRIu32, s_ch0_us, s_ch1_us);
   ESP_LOGI(TAG, "PWM servo outputs enabled: ch0->GPIO%d ch1->GPIO%d @ 50Hz",
            CONFIG_SERVO1_GPIO, CONFIG_SERVO2_GPIO);
   return ESP_OK;
@@ -98,9 +86,7 @@ void servo_drive_set_pct(uint16_t pot_pct_0_100) {
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
   (void)ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, d1);
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-  if (s_status_write) {
-    s_status_write(s_status_write_ctx, "Servo", "S0:%" PRIu32 " S1:%" PRIu32, p0, p1);
-  }
+  status_ui_update("Servo", "S0:%" PRIu32 " S1:%" PRIu32, p0, p1);
 }
 
 void servo_drive_get_commanded_deg(int16_t *deg_a, int16_t *deg_b) {

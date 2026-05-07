@@ -23,54 +23,63 @@ static void with_lock(void (*fn)(void)) {
   }
 }
 
-static int16_t s_pitch_deg;
-static int16_t s_roll_deg;
-static int16_t s_yaw_deg;
-static int16_t s_height_cm;
-static int16_t s_servo_a_deg;
-static int16_t s_servo_b_deg;
-static float s_speed_knots;
-static float s_heading_deg;
-static uint16_t s_pot_pct;
+/* Double-buffered CAN data to prevent race between RX task and paint functions.
+ * The RX task writes to s_rx_data, then atomically swaps s_have_* flags.
+ * Paint functions read under the display lock. */
+typedef struct {
+  int16_t pitch_deg;
+  int16_t roll_deg;
+  int16_t yaw_deg;
+  int16_t height_cm;
+  int16_t servo_a_deg;
+  int16_t servo_b_deg;
+  float speed_knots;
+  float heading_deg;
+  uint16_t pot_pct;
+  bool have_attitude;
+  bool have_height;
+  bool have_servo;
+  bool have_gps_vel;
+  bool have_pot;
+} can_rx_snapshot_t;
 
-static bool s_have_attitude;
-static bool s_have_height;
-static bool s_have_servo;
-static bool s_have_gps_vel;
-static bool s_have_pot;
+static can_rx_snapshot_t s_rx_data;
+static dashboard_can_lock_fn_t s_lock;
+static dashboard_can_unlock_fn_t s_unlock;
+static void *s_lock_ctx;
 
 static void paint_attitude(void) {
-  if (!s_have_attitude) {
+  if (!s_rx_data.have_attitude) {
     return;
   }
-  int32_t heading = (int32_t)s_yaw_deg % 360;
+  int32_t heading = (int32_t)s_rx_data.yaw_deg % 360;
   if (heading < 0) {
     heading += 360;
   }
-  dashboard_ui_set_attitude((int32_t)s_roll_deg, (int32_t)s_pitch_deg, heading);
+  dashboard_ui_set_attitude((int32_t)s_rx_data.roll_deg, (int32_t)s_rx_data.pitch_deg, heading);
 }
 
 static void paint_height(void) {
-  if (!s_have_height) {
+  if (!s_rx_data.have_height) {
     return;
   }
-  dashboard_ui_set_height((int32_t)s_height_cm, 25);
+  dashboard_ui_set_height((int32_t)s_rx_data.height_cm, 25);
 }
 
 static void paint_servo(void) {
-  if (!s_have_servo) {
+  if (!s_rx_data.have_servo) {
     return;
   }
-  dashboard_ui_set_elevons((int32_t)s_servo_a_deg, (int32_t)s_servo_b_deg);
+  dashboard_ui_set_elevons((int32_t)s_rx_data.servo_a_deg, (int32_t)s_rx_data.servo_b_deg);
 }
 
 static void paint_gps_vel(void) {
-  if (!s_have_gps_vel) {
+  if (!s_rx_data.have_gps_vel) {
     return;
   }
-  dashboard_ui_set_speed((int32_t)lroundf(s_speed_knots * 1.852f));
-  if (!s_have_attitude) {
-    int32_t h = (int32_t)lroundf(s_heading_deg);
+  dashboard_ui_set_speed((int32_t)lroundf(s_rx_data.speed_knots * 1.852f));
+  if (!s_rx_data.have_attitude) {
+    int32_t h = (int32_t)lroundf(s_rx_data.heading_deg);
     h %= 360;
     if (h < 0) {
       h += 360;
@@ -80,10 +89,10 @@ static void paint_gps_vel(void) {
 }
 
 static void paint_pot(void) {
-  if (!s_have_pot) {
+  if (!s_rx_data.have_pot) {
     return;
   }
-  int32_t rudder = ((int32_t)s_pot_pct * 40) / 100 - 20;
+  int32_t rudder = ((int32_t)s_rx_data.pot_pct * 40) / 100 - 20;
   dashboard_ui_set_rudder(rudder);
 }
 
@@ -101,40 +110,49 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     return;
   }
   switch (header_id) {
-  case CAN_ID_ATTITUDE:
-    if (sizeof(int16_t) * 3 <= 8) {
-      memcpy(&s_pitch_deg, &buffer[0], sizeof(s_pitch_deg));
-      memcpy(&s_roll_deg, &buffer[2], sizeof(s_roll_deg));
-      memcpy(&s_yaw_deg, &buffer[4], sizeof(s_yaw_deg));
-      s_have_attitude = true;
+  case CAN_ID_ATTITUDE: {
+    if (sizeof(can_attitude_t) <= 8) {
+      can_attitude_t att;
+      memcpy(&att, buffer, sizeof(att));
+      s_rx_data.pitch_deg = att.pitch_deg;
+      s_rx_data.roll_deg = att.roll_deg;
+      s_rx_data.yaw_deg = att.yaw_deg;
+      s_rx_data.have_attitude = true;
       with_lock(paint_attitude);
     }
     break;
+  }
   case CAN_ID_HEIGHT: {
-    uint16_t h;
-    memcpy(&h, &buffer[0], sizeof(h));
-    s_height_cm = (int16_t)h;
-    s_have_height = true;
+    can_height_t hb;
+    memcpy(&hb, buffer, sizeof(hb));
+    s_rx_data.height_cm = (int16_t)hb.height_cm;
+    s_rx_data.have_height = true;
     with_lock(paint_height);
     break;
   }
-  case CAN_ID_SERVO_POS:
-    memcpy(&s_servo_a_deg, &buffer[0], sizeof(s_servo_a_deg));
-    memcpy(&s_servo_b_deg, &buffer[2], sizeof(s_servo_b_deg));
-    s_have_servo = true;
+  case CAN_ID_SERVO_POS: {
+    can_servo_pos_t sp;
+    memcpy(&sp, buffer, sizeof(sp));
+    s_rx_data.servo_a_deg = sp.channel_a_deg;
+    s_rx_data.servo_b_deg = sp.channel_b_deg;
+    s_rx_data.have_servo = true;
     with_lock(paint_servo);
     break;
-  case CAN_ID_GPS_VELOCITY:
-    memcpy(&s_speed_knots, &buffer[0], sizeof(s_speed_knots));
-    memcpy(&s_heading_deg, &buffer[4], sizeof(s_heading_deg));
-    s_have_gps_vel = true;
+  }
+  case CAN_ID_GPS_VELOCITY: {
+    can_gps_velocity_t gv;
+    memcpy(&gv, buffer, sizeof(gv));
+    s_rx_data.speed_knots = gv.speed_knots;
+    s_rx_data.heading_deg = gv.course_deg;
+    s_rx_data.have_gps_vel = true;
     with_lock(paint_gps_vel);
     break;
+  }
   case CAN_ID_POTENTIOMETER: {
-    uint16_t v;
-    memcpy(&v, buffer, sizeof(v));
-    s_pot_pct = (v > 100) ? 100 : v;
-    s_have_pot = true;
+    can_potentiometer_t pot;
+    memcpy(&pot, buffer, sizeof(pot));
+    s_rx_data.pot_pct = (pot.value > 100) ? 100 : pot.value;
+    s_rx_data.have_pot = true;
     with_lock(paint_pot);
     break;
   }
@@ -149,14 +167,10 @@ esp_err_t dashboard_can_attach(dashboard_can_lock_fn_t lock, dashboard_can_unloc
   if (lock == NULL || unlock == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
+  memset(&s_rx_data, 0, sizeof(s_rx_data));
   s_lock = lock;
   s_unlock = unlock;
   s_lock_ctx = lock_ctx;
-  s_have_attitude = false;
-  s_have_height = false;
-  s_have_servo = false;
-  s_have_gps_vel = false;
-  s_have_pot = false;
   return ESP_OK;
 }
 

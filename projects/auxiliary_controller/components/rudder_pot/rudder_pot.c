@@ -6,6 +6,7 @@
 #include "can.h"
 #include "can_ids.h"
 #include "esp_adc/adc_oneshot.h"
+#include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,8 +17,6 @@ static const char *TAG = "rudder_pot";
 static adc_oneshot_unit_handle_t s_adc;
 static uint16_t s_last_pct;
 static int s_last_raw;
-static status_write_cb_t s_status_write = NULL;
-static void *s_status_write_ctx = NULL;
 
 static void pot_tx_task(void *arg) {
   (void)arg;
@@ -46,14 +45,12 @@ static void pot_tx_task(void *arg) {
           s_last_pct = pct;
           uint8_t b[2];
           memcpy(b, &pct, sizeof(pct));
-          bool ok = can_tx(CAN_ID_POTENTIOMETER, b, sizeof(b));
+          esp_err_t tx_err = can_tx(CAN_ID_POTENTIOMETER, b, sizeof(b));
           loop++;
           if ((loop % 20u) == 0u) {
-            ESP_LOGI(TAG, "POT %u%% raw=%d CAN tx=%s", (unsigned)pct, raw, ok ? "ok" : "drop");
-            if (s_status_write) {
-              s_status_write(s_status_write_ctx, "Rudder POT", "Pot %u%% raw %d [%d..%d]",
+            ESP_LOGI(TAG, "POT %u%% raw=%d CAN tx=%s", (unsigned)pct, raw, tx_err == ESP_OK ? "ok" : "drop");
+            status_ui_update("Rudder POT", "Pot %u%% raw %d [%d..%d]",
                              (unsigned)pct, raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX);
-            }
           }
         }
       }
@@ -62,37 +59,31 @@ static void pot_tx_task(void *arg) {
   }
 }
 
-esp_err_t rudder_pot_init(status_write_cb_t status_write, void *status_write_ctx) {
-  s_status_write = status_write;
-  s_status_write_ctx = status_write_ctx;
-
+esp_err_t rudder_pot_init(void) {
   adc_channel_t ch;
   adc_unit_t uu;
   esp_err_t map_e = adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &uu, &ch);
-  if (map_e != ESP_OK) {
-    ESP_LOGW(TAG, "GPIO %d is not a valid ADC pin", CONFIG_POT_GPIO_NUM);
-    return map_e;
-  }
+  ESP_RETURN_ON_ERROR(map_e, TAG, "GPIO %d is not a valid ADC pin", CONFIG_POT_GPIO_NUM);
 
   adc_oneshot_unit_init_cfg_t acfg = {
       .unit_id = uu,
       .clk_src = ADC_DIGI_CLK_SRC_DEFAULT,
   };
   esp_err_t err = adc_oneshot_new_unit(&acfg, &s_adc);
-  if (err != ESP_OK) {
-    return err;
-  }
+  ESP_RETURN_ON_ERROR(err, TAG, "adc new unit failed");
+
   adc_oneshot_chan_cfg_t chc = {
       .bitwidth = ADC_BITWIDTH_DEFAULT,
       .atten = ADC_ATTEN_DB_12,
   };
   esp_err_t cfg_e = adc_oneshot_config_channel(s_adc, ch, &chc);
-  if (cfg_e != ESP_OK) {
-    ESP_LOGW(TAG, "ADC channel config failed on GPIO %d", CONFIG_POT_GPIO_NUM);
-    return ESP_FAIL;
-  }
+  ESP_RETURN_ON_ERROR(cfg_e, TAG, "ADC channel config failed on GPIO %d", CONFIG_POT_GPIO_NUM);
+
   ESP_LOGI(TAG, "ADC rudder on GPIO %d", CONFIG_POT_GPIO_NUM);
-  xTaskCreate(pot_tx_task, "pot_tx", 4096, NULL, 6, NULL);
+  if (xTaskCreate(pot_tx_task, "pot_tx", 4096, NULL, 6, NULL) != pdPASS) {
+    ESP_LOGE(TAG, "pot_tx task create failed");
+    return ESP_ERR_NO_MEM;
+  }
   return ESP_OK;
 }
 

@@ -1,13 +1,12 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
 #include "status_ui.h"
 
-esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ctx);
+esp_err_t servo_drive_init(void);
 
 bool servo_drive_is_ready(void);
 

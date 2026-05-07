@@ -1,6 +1,5 @@
 #pragma once
 
-#include "status_ui.h"
-#include <stddef.h>
+#include "esp_err.h"
 
-void gps_init(status_write_cb_t status_write, void *status_write_ctx);
+esp_err_t gps_init(void);

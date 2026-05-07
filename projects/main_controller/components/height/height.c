@@ -5,11 +5,13 @@
 
 #include "a02yyuw.h"
 #include "driver/uart.h"
+#include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "status_ui.h"
 
 static const char *TAG = "height";
 
@@ -22,8 +24,6 @@ static int32_t s_height_cm = 0;
 static bool s_initialized = false;
 static bool s_init_failed = false;
 static volatile bool s_height_task_alive;
-static status_write_cb_t s_status_write = NULL;
-static void *s_status_write_ctx = NULL;
 
 static void height_task(void *pvParameters) {
     (void)pvParameters;
@@ -40,6 +40,7 @@ static void height_task(void *pvParameters) {
         ESP_LOGE(TAG, "a02yyuw_init failed: %s", esp_err_to_name(ret));
         s_height_task_alive = false;
         s_init_failed = true;
+        status_ui_update("Height", "H: off (init failed)");
         vTaskDelete(NULL);
         return;
     }
@@ -86,9 +87,7 @@ static void height_task(void *pvParameters) {
         (void)a02yyuw_deinit(&dev);
         s_height_task_alive = false;
         s_init_failed = true;
-        if (s_status_write) {
-            s_status_write(s_status_write_ctx, "Height", "H: off (ultrasonic N/C)");
-        }
+        status_ui_update("Height", "H: off (ultrasonic N/C)");
         vTaskDelete(NULL);
         return;
     }
@@ -112,9 +111,7 @@ static void height_task(void *pvParameters) {
                 s_height_cm = height_cm;
                 xSemaphoreGive(s_mutex);
             }
-            if (s_status_write) {
-                s_status_write(s_status_write_ctx, "Height", "H:%" PRId32 " cm", height_cm);
-            }
+            status_ui_update("Height", "H:%" PRId32 " cm", height_cm);
             ESP_LOGD(TAG, "Height: %ld cm (%u mm)", height_cm, distance_mm);
         } else {
             ESP_LOGD(TAG, "Read failed: %s", esp_err_to_name(ret));
@@ -123,11 +120,8 @@ static void height_task(void *pvParameters) {
     }
 }
 
-esp_err_t height_init(status_write_cb_t status_write, void *status_write_ctx) {
+esp_err_t height_init(void) {
     static bool mutex_ready;
-
-    s_status_write = status_write;
-    s_status_write_ctx = status_write_ctx;
 
     if (!mutex_ready) {
         s_mutex = xSemaphoreCreateMutex();

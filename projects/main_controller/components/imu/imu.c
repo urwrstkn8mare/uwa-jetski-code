@@ -12,6 +12,7 @@
 #include "icm20948.h"
 #include "icm20948_i2c.h"
 #include "sdkconfig.h"
+#include "status_ui.h"
 
 static const char *TAG = "imu";
 
@@ -33,8 +34,6 @@ static volatile bool s_reader_task_started = false;
 static float s_pitch_deg = 0.0f;
 static float s_roll_deg = 0.0f;
 static float s_yaw_deg = 0.0f;
-static status_write_cb_t s_status_write = NULL;
-static void *s_status_write_ctx = NULL;
 
 static void quaternion_to_rpy(double q0, double q1, double q2, double q3, float *pitch, float *roll, float *yaw) {
     const double sinr_cosp = 2.0 * ((q0 * q1) + (q2 * q3));
@@ -129,10 +128,8 @@ static void imu_reader_task(void *arg) {
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;
                     xSemaphoreGive(s_mutex);
-                    if (s_status_write) {
-                        s_status_write(s_status_write_ctx, "IMU", "P:%.1f R:%.1f Y:%.1f deg",
-                                       (double)pitch, (double)roll, (double)yaw);
-                    }
+                    status_ui_update("IMU", "P:%.1f R:%.1f Y:%.1f deg",
+                                     (double)pitch, (double)roll, (double)yaw);
                 }
             }
         }
@@ -145,7 +142,7 @@ static void imu_reader_task(void *arg) {
     }
 }
 
-esp_err_t imu_init(status_write_cb_t status_write, void *status_write_ctx) {
+esp_err_t imu_init(void) {
 #if CONFIG_IMU_SKIP_HW
     ESP_LOGW(TAG, "IMU disabled by Kconfig (CONFIG_IMU_SKIP_HW)");
     return ESP_FAIL;
@@ -154,9 +151,6 @@ esp_err_t imu_init(status_write_cb_t status_write, void *status_write_ctx) {
     if (s_imu_initialized) {
         return ESP_OK;
     }
-
-    s_status_write = status_write;
-    s_status_write_ctx = status_write_ctx;
 
     if (s_mutex == NULL) {
         s_mutex = xSemaphoreCreateMutex();

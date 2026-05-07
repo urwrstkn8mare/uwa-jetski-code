@@ -50,9 +50,10 @@ bool can_is_ready(void);
  * @param[in] id: CAN message identifier (11-bit standard ID)
  * @param[in] data: Pointer to data buffer (max 8 bytes)
  * @param[in] len: Data length (0-8)
- * @return true on success, false on failure
+ * @return ESP_OK on success, ESP_ERR_INVALID_STATE if CAN not ready,
+ *         ESP_ERR_INVALID_SIZE if len > 8, ESP_ERR_TIMEOUT if TX queue full.
  */
-bool can_tx(uint32_t id, const uint8_t *data, uint8_t len);
+esp_err_t can_tx(uint32_t id, const uint8_t *data, uint8_t len);
 
 /**
  * @brief Get CAN TX diagnostics (attempts and failures)

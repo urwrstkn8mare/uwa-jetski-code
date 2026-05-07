@@ -192,7 +192,7 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
 #ifdef CONFIG_CAN_SKIP_HW
   (void)can_rx_cb;
   ESP_LOGW(TAG, "CAN hardware disabled (CONFIG_CAN_SKIP_HW) — TWAI not started");
-  return ESP_FAIL;
+  return ESP_ERR_NOT_SUPPORTED;
 #endif
 
   s_given_can_rx_cb = can_rx_cb;
@@ -385,20 +385,20 @@ void can_get_bus_health(can_bus_health_t *out) {
   out->bus_error_events = rec.bus_err_num;
 }
 
-bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
+esp_err_t can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
   if (s_node_hdl == NULL || s_tx_req_queue == NULL) {
-    return false;
+    return ESP_ERR_INVALID_STATE;
   }
   if (len > 8) {
     ESP_LOGE(TAG, "CAN data length exceeds 8 bytes");
-    return false;
+    return ESP_ERR_INVALID_SIZE;
   }
 
   twai_node_status_t status;
   if (twai_node_get_info(s_node_hdl, &status, NULL) == ESP_OK) {
     if (status.state == TWAI_ERROR_BUS_OFF) {
       twai_node_recover(s_node_hdl);
-      return false;
+      return ESP_ERR_INVALID_STATE;
     }
   }
 
@@ -413,9 +413,9 @@ bool can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
     if ((s_tx_attempts % 100) == 0) {
       ESP_LOGD(TAG, "CAN tx request queue full (ID 0x%x)", id);
     }
-    return false;
+    return ESP_ERR_TIMEOUT;
   }
-  return true;
+  return ESP_OK;
 }
 
 void can_get_tx_stats(uint32_t *attempts, uint32_t *failures) {

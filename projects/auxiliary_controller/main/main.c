@@ -16,7 +16,6 @@
 static const char *TAG = "aux_main";
 
 static tdisplays3_handle_t s_tdisp_board;
-static status_ui_t s_status_ui;
 
 static void aux_status_lock(void) { tdisplays3_display_lock(200); }
 
@@ -49,7 +48,7 @@ static void auxiliary_status_display_init(void) {
       .unlock_cb = aux_status_unlock,
       .min_interval_ms = 200,
   };
-  if (status_ui_start(&s_status_ui, &cfg) != ESP_OK) {
+  if (status_ui_start(&cfg) != ESP_OK) {
     ESP_LOGW(TAG, "status display init failed");
   }
 
@@ -57,18 +56,16 @@ static void auxiliary_status_display_init(void) {
 }
 
 static void aux_task_loop(void *arg) {
-  status_ui_t *disp = (status_ui_t *)arg;
+  (void)arg;
   for (;;) {
-    if (disp != NULL) {
-      if (can_is_ready()) {
-        char buf[128];
-        int n = can_snprintf_board_status(buf, sizeof(buf));
-        if (n > 0) {
-          status_ui_update(disp, "CAN", "%s", buf);
-        }
-      } else {
-        status_ui_update(disp, "CAN", "CAN off (TWAI down)");
+    if (can_is_ready()) {
+      char buf[128];
+      int n = can_snprintf_board_status(buf, sizeof(buf));
+      if (n > 0) {
+        status_ui_update("CAN", "%s", buf);
       }
+    } else {
+      status_ui_update("CAN", "CAN off (TWAI down)");
     }
     vTaskDelay(pdMS_TO_TICKS(200));
   }
@@ -81,10 +78,12 @@ void app_main(void) {
     ESP_LOGW(TAG, "CAN init failed — display still active; TX disabled until fixed");
   }
 
-  gps_init(status_ui_update, &s_status_ui);
-  if (rudder_pot_init(status_ui_update, &s_status_ui) != ESP_OK) {
+  gps_init();
+  if (rudder_pot_init() != ESP_OK) {
     ESP_LOGW(TAG, "Rudder ADC not initialised");
   }
 
-  xTaskCreate(aux_task_loop, "aux_io", 2048, &s_status_ui, 2, NULL);
+  if (xTaskCreate(aux_task_loop, "aux_io", 2048, NULL, 2, NULL) != pdPASS) {
+    ESP_LOGE(TAG, "aux_io task create failed");
+  }
 }
