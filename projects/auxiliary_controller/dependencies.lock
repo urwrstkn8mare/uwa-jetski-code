@@ -49,13 +49,15 @@ dependencies:
       type: service
     version: 9.5.0
   lwgps:
+    component_hash: 60d7af4a2ad996d8fbf6250123a723a05316526d88322ab421407a58758d0768
     dependencies:
     - name: idf
       version: '>=5.0'
     source:
-      path: ../../../lwgps
-      type: local
-    version: '*'
+      git: https://github.com/urwrstkn8mare/lwgps.git
+      path: .
+      type: git
+    version: 19fabc5a162a51347eb4ec15ed293854dbac1c14
   tdisplays3:
     component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
     dependencies:
@@ -75,6 +77,6 @@ direct_dependencies:
 - idf
 - lwgps
 - tdisplays3
-manifest_hash: 9c9efc8be06a6db63f449c4e188d07b163c403421c7f2413b8233fd3fcf103eb
+manifest_hash: a76e6a43718bfc4e5d457a046b64582070e657c3c89f96443a6e13ba3dc1e8ef
 target: esp32s3
 version: 3.0.0
