@@ -4,8 +4,8 @@ This is the code for both the new and old hydrfoil jetski at UWA.
 
 ## TODO
 
-- [x] Clean up components and dependency tree. (use `EXTRA_COMPONENT_DIRS` → `shared_components` in firmware `CMakeLists.txt` instead of symlinking)
-- [ ] Upgrade all the v5 ESP-IDF projects to v6.
+- [ ] Create component for managing persistent configuration in main controller. Should be modifiable via a website hosted on the ESP32 accessable via soft AP. see if there are any exisiting libraries/components that can achieve this goal.
+- [ ] add some control loops!
 
 ## Directories explained
 
