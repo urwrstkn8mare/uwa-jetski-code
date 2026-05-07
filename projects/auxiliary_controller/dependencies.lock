@@ -49,7 +49,7 @@ dependencies:
       type: service
     version: 9.5.0
   lwgps:
-    component_hash: 60d7af4a2ad996d8fbf6250123a723a05316526d88322ab421407a58758d0768
+    component_hash: 673cd4713b1c44bbc24d98919cbcff4c7f63fd9f387b3f6c72d74d0c16a24b9d
     dependencies:
     - name: idf
       version: '>=5.0'
@@ -57,7 +57,7 @@ dependencies:
       git: https://github.com/urwrstkn8mare/lwgps.git
       path: .
       type: git
-    version: 19fabc5a162a51347eb4ec15ed293854dbac1c14
+    version: 7331992db8fd1975d3e6d3d559ba6e3d29add2e2
   tdisplays3:
     component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
     dependencies:

@@ -1,0 +1,7 @@
+#ifndef LWGPS_OPTS_HDR_H
+#define LWGPS_OPTS_HDR_H
+
+#define LWGPS_CFG_DOUBLE 0
+#define LWGPS_CFG_STATUS 1
+
+#endif /* LWGPS_OPTS_HDR_H */
