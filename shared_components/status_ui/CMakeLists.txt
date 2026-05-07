@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "lvgl_status_display.c"
+    SRCS "status_ui.c"
     INCLUDE_DIRS "include"
-    REQUIRES lvgl
+    REQUIRES esp_timer lvgl
 )

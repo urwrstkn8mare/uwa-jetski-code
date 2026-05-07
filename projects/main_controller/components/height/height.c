@@ -13,7 +13,6 @@
 
 static const char *TAG = "height";
 
-/** Probe time to decide “sensor unplugged”: UART opens even with no ultrasonic. */
 #ifndef CONFIG_HEIGHT_PROBE_TIMEOUT_MS
 #define CONFIG_HEIGHT_PROBE_TIMEOUT_MS 2000
 #endif
@@ -23,6 +22,8 @@ static int32_t s_height_cm = 0;
 static bool s_initialized = false;
 static bool s_init_failed = false;
 static volatile bool s_height_task_alive;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static void height_task(void *pvParameters) {
     (void)pvParameters;
@@ -31,9 +32,6 @@ static void height_task(void *pvParameters) {
 
     a02yyuw_dev_t dev = {0};
 
-    /* The library hardcodes UART TX to NC, so we reuse the TX GPIO as the
-     * sensor's mode-select pin.  On the A02YYUW, pulling RX high selects
-     * processed (filtered) data; pulling it low selects real-time data. */
     esp_err_t ret = a02yyuw_init(&dev, CONFIG_HEIGHT_UART_PORT,
                                  CONFIG_HEIGHT_UART_RX_GPIO,
                                  CONFIG_HEIGHT_UART_TX_GPIO,
@@ -46,7 +44,6 @@ static void height_task(void *pvParameters) {
         return;
     }
 
-    /* Fix the library's incorrect flow-control setting */
     uart_config_t uart_config = {
         .baud_rate = 9600,
         .data_bits = UART_DATA_8_BITS,
@@ -89,6 +86,9 @@ static void height_task(void *pvParameters) {
         (void)a02yyuw_deinit(&dev);
         s_height_task_alive = false;
         s_init_failed = true;
+        if (s_status_write) {
+            s_status_write(s_status_write_ctx, "Height", "H: off (ultrasonic N/C)");
+        }
         vTaskDelete(NULL);
         return;
     }
@@ -112,6 +112,9 @@ static void height_task(void *pvParameters) {
                 s_height_cm = height_cm;
                 xSemaphoreGive(s_mutex);
             }
+            if (s_status_write) {
+                s_status_write(s_status_write_ctx, "Height", "H:%" PRId32 " cm", height_cm);
+            }
             ESP_LOGD(TAG, "Height: %ld cm (%u mm)", height_cm, distance_mm);
         } else {
             ESP_LOGD(TAG, "Read failed: %s", esp_err_to_name(ret));
@@ -120,8 +123,12 @@ static void height_task(void *pvParameters) {
     }
 }
 
-esp_err_t height_init(void) {
+esp_err_t height_init(status_write_cb_t status_write, void *status_write_ctx) {
     static bool mutex_ready;
+
+    s_status_write = status_write;
+    s_status_write_ctx = status_write_ctx;
+
     if (!mutex_ready) {
         s_mutex = xSemaphoreCreateMutex();
         if (s_mutex == NULL) {
@@ -144,7 +151,7 @@ esp_err_t height_init(void) {
         }
     }
 
-    const int max_wait = 45; /* probe ~2 s + slack */
+    const int max_wait = 45;
     int waited = 0;
     while (!s_initialized && !s_init_failed && waited < max_wait) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -174,17 +181,4 @@ esp_err_t height_get_cm(int32_t *height_cm) {
     *height_cm = s_height_cm;
     xSemaphoreGive(s_mutex);
     return ESP_OK;
-}
-
-size_t height_status_line_write(char *buf, size_t cap) {
-  if (buf == NULL || cap == 0) {
-    return 0;
-  }
-  int32_t hcm = -1;
-  if (height_get_cm(&hcm) == ESP_OK) {
-    int n = snprintf(buf, cap, "H:%" PRId32 " cm", hcm);
-    return (n > 0) ? (size_t)n : 0;
-  }
-  int n = snprintf(buf, cap, "H: off (ultrasonic N/C)");
-  return (n > 0) ? (size_t)n : 0;
 }

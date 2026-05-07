@@ -23,6 +23,8 @@ static lwgps_t s_gps;
 static uint32_t s_parse_ok;
 static uint32_t s_parse_fail;
 static bool s_started;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static void publish_position(void) {
   uint8_t payload[sizeof(float) * 2];
@@ -93,11 +95,33 @@ static void gps_uart_task(void *arg) {
     }
 
     lwgps_process(&s_gps, buf, (size_t)n, on_sentence);
+
+    if (s_status_write) {
+      float lat = s_gps.latitude;
+      float lon = s_gps.longitude;
+      float speed = s_gps.speed;
+      float course = s_gps.course;
+      uint8_t fix = (s_gps.is_valid || s_gps.fix > 0) ? 1 : 0;
+      uint8_t quality = s_gps.fix;
+      uint8_t sats = s_gps.sats_in_use;
+      uint32_t ok = s_parse_ok;
+      uint32_t fail = s_parse_fail;
+
+      s_status_write(s_status_write_ctx, "GPS",
+                     "fx%u q%u sat%u ok%u x%u lat%.6f lon%.6f spd%.2fkt hdg%.2f",
+                     fix, quality, sats, (unsigned)ok, (unsigned)fail,
+                     (double)lat, (double)lon,
+                     (double)speed, (double)course);
+    }
+
     xSemaphoreGive(s_mux);
   }
 }
 
-void gps_init(void) {
+void gps_init(status_write_cb_t status_write, void *status_write_ctx) {
+  s_status_write = status_write;
+  s_status_write_ctx = status_write_ctx;
+
   if (s_started) {
     return;
   }
@@ -118,31 +142,4 @@ void gps_init(void) {
   s_started = true;
   ESP_LOGI(TAG, "GPS UART%d RX GPIO %d %u baud", CONFIG_GPS_UART_PORT_NUM, CONFIG_GPS_UART_RX_GPIO,
            (unsigned)CONFIG_GPS_UART_BAUD);
-}
-
-size_t gps_status_write(char *buf, size_t cap) {
-  if (!buf || cap == 0 || s_mux == NULL || xSemaphoreTake(s_mux, pdMS_TO_TICKS(10)) != pdTRUE) {
-    return 0;
-  }
-
-  float lat = s_gps.latitude;
-  float lon = s_gps.longitude;
-  float speed = s_gps.speed;
-  float course = s_gps.course;
-  uint8_t fix = (s_gps.is_valid || s_gps.fix > 0) ? 1 : 0;
-  uint8_t quality = s_gps.fix;
-  uint8_t sats = s_gps.sats_in_use;
-  uint32_t ok = s_parse_ok;
-  uint32_t fail = s_parse_fail;
-
-  xSemaphoreGive(s_mux);
-
-  int n = snprintf(buf, cap,
-                   "fx%u q%u sat%u ok%u x%u\n"
-                   "lat%.6f lon%.6f\n"
-                   "spd%.2fkt hdg%.2f",
-                   fix, quality, sats, (unsigned)ok, (unsigned)fail,
-                   (double)lat, (double)lon,
-                   (double)speed, (double)course);
-  return (n > 0) ? (size_t)n : 0;
 }

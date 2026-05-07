@@ -6,9 +6,11 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "lvgl.h"
-#include "lvgl_status_display.h"
+#include "status_ui.h"
 #include "sdkconfig.h"
 #include "ws_display.h"
+
+#include "freertos/FreeRTOS.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -16,6 +18,7 @@
 static const char *TAG = "ws_lcd_main";
 
 static dashboard_ui_t *s_ui;
+static status_ui_t s_strip;
 
 static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *user_data) {
   (void)user_data;
@@ -27,8 +30,11 @@ static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *u
   return (err == ESP_OK) ? font : NULL;
 }
 
+static void ws_lcd_status_lock(void) { ws_display_lock(portMAX_DELAY); }
+
+static void ws_lcd_status_unlock(void) { ws_display_unlock(); }
+
 #if !CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
-/* dashboard_can_attach() expects a lock function. */
 static esp_err_t ws_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
   return (ws_display_lock(timeout_ms) == ESP_OK) ? ESP_OK : ESP_FAIL;
@@ -40,26 +46,21 @@ static void ws_can_unlock(void *ctx) {
 }
 #endif
 
+#if CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
 typedef struct {
   dashboard_ui_t *ui;
   uint32_t start_ms;
 } demo_ctx_t;
 
 static demo_ctx_t s_demo_ctx;
-static lvgl_status_display_t s_strip;
 
-static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
+static void demo_status_timer_cb(lv_timer_t *timer) {
+  status_ui_t *disp = lv_timer_get_user_data(timer);
+  if (disp == NULL) {
+    return;
   }
-
-  const int hz = CONFIG_WS_LCD_DASHBOARD_DEMO_HZ;
-  int n = snprintf(buffer, len, "DEMO %dHz", (hz > 0) ? hz : 1);
-  if (n < 0) {
-    return 0;
-  }
-  return (size_t)n;
+  const int hz = (CONFIG_WS_LCD_DASHBOARD_DEMO_HZ > 0) ? CONFIG_WS_LCD_DASHBOARD_DEMO_HZ : 1;
+  status_ui_update(disp, "Demo", "DEMO %dHz", hz);
 }
 
 static void demo_timer_cb(lv_timer_t *timer) {
@@ -72,6 +73,7 @@ static void demo_timer_cb(lv_timer_t *timer) {
   const uint32_t elapsed_ms = lv_tick_elaps(ctx->start_ms);
   dashboard_demo_update_ui(ctx->ui, elapsed_ms);
 }
+#endif
 
 void app_main(void) {
   ESP_ERROR_CHECK(ws_display_init());
@@ -91,7 +93,6 @@ void app_main(void) {
     return;
   }
 
-  /* Create a dedicated host container for dashboard_ui. */
   lv_obj_t *dashboard_host = lv_obj_create(screen);
   lv_obj_remove_style_all(dashboard_host);
   lv_obj_remove_flag(dashboard_host, LV_OBJ_FLAG_SCROLLABLE);
@@ -106,13 +107,6 @@ void app_main(void) {
     return;
   }
 
-  lv_obj_t *strip_label = dashboard_ui_create_status_strip(screen, h_res, strip_h_px);
-  if (strip_label == NULL) {
-    ESP_LOGE(TAG, "Failed to create status strip label");
-    ws_display_unlock();
-    return;
-  }
-
 #if CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
   s_demo_ctx.ui = s_ui;
   s_demo_ctx.start_ms = lv_tick_get();
@@ -123,27 +117,42 @@ void app_main(void) {
   (void)lv_timer_create(demo_timer_cb, demo_period_ms, &s_demo_ctx);
   dashboard_demo_update_ui(s_ui, 0);
 
-  lvgl_status_line_t lines[1] = {
-      {.write = demo_status_strip_write, .ctx = NULL},
+  const status_ui_cfg_t cfg = {
+      .parent = screen,
+      .flex_flow = LV_FLEX_FLOW_ROW,
+      .w = h_res,
+      .h = strip_h_px,
+      .align = LV_ALIGN_BOTTOM_MID,
+      .bg_opa = LV_OPA_COVER,
+      .lock_cb = ws_lcd_status_lock,
+      .unlock_cb = ws_lcd_status_unlock,
+      .min_interval_ms = 250,
   };
-  ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1,
-                                              250, 64));
+  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+
+  (void)lv_timer_create(demo_status_timer_cb, 250, &s_strip);
 #else
-  ESP_ERROR_CHECK(dashboard_can_attach(s_ui, ws_can_lock, ws_can_unlock, NULL));
-  lvgl_status_line_t lines[1] = {{0}};
+  ESP_ERROR_CHECK(dashboard_can_attach(s_ui, ws_can_lock, ws_can_unlock, NULL,
+                                       status_ui_update, &s_strip));
+
+  const status_ui_cfg_t cfg = {
+      .parent = screen,
+      .flex_flow = LV_FLEX_FLOW_ROW,
+      .w = h_res,
+      .h = strip_h_px,
+      .align = LV_ALIGN_BOTTOM_MID,
+      .bg_opa = LV_OPA_COVER,
+      .lock_cb = ws_lcd_status_lock,
+      .unlock_cb = ws_lcd_status_unlock,
+      .min_interval_ms = 250,
+  };
+  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+
   esp_err_t can_err = dashboard_can_start();
   if (can_err != ESP_OK) {
     ESP_LOGW(TAG, "CAN start failed: %s (UI will stay up)", esp_err_to_name(can_err));
-    lines[0].write = dashboard_can_unavailable_status_strip_write;
-    lines[0].ctx = NULL;
-  } else {
-    lines[0].write = dashboard_can_status_strip_write;
-    lines[0].ctx = NULL;
+    status_ui_update(&s_strip, "CAN", "CAN off (TWAI down)");
   }
-
-  /* Refresh CAN strip periodically without requiring LVGL redraw knowledge. */
-  ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1,
-                                              250, 96));
 #endif
 
   ws_display_unlock();

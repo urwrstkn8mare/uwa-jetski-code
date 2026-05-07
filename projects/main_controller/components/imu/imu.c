@@ -33,6 +33,8 @@ static volatile bool s_reader_task_started = false;
 static float s_pitch_deg = 0.0f;
 static float s_roll_deg = 0.0f;
 static float s_yaw_deg = 0.0f;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static void quaternion_to_rpy(double q0, double q1, double q2, double q3, float *pitch, float *roll, float *yaw) {
     const double sinr_cosp = 2.0 * ((q0 * q1) + (q2 * q3));
@@ -127,6 +129,10 @@ static void imu_reader_task(void *arg) {
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;
                     xSemaphoreGive(s_mutex);
+                    if (s_status_write) {
+                        s_status_write(s_status_write_ctx, "IMU", "P:%.1f R:%.1f Y:%.1f deg",
+                                       (double)pitch, (double)roll, (double)yaw);
+                    }
                 }
             }
         }
@@ -139,7 +145,7 @@ static void imu_reader_task(void *arg) {
     }
 }
 
-esp_err_t imu_init(void) {
+esp_err_t imu_init(status_write_cb_t status_write, void *status_write_ctx) {
 #if CONFIG_IMU_SKIP_HW
     ESP_LOGW(TAG, "IMU disabled by Kconfig (CONFIG_IMU_SKIP_HW)");
     return ESP_FAIL;
@@ -148,6 +154,9 @@ esp_err_t imu_init(void) {
     if (s_imu_initialized) {
         return ESP_OK;
     }
+
+    s_status_write = status_write;
+    s_status_write_ctx = status_write_ctx;
 
     if (s_mutex == NULL) {
         s_mutex = xSemaphoreCreateMutex();
@@ -213,25 +222,4 @@ esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
     }
     xSemaphoreGive(s_mutex);
     return ESP_OK;
-}
-
-size_t imu_status_line_write(char *buf, size_t cap) {
-    if (buf == NULL || cap == 0) {
-        return 0;
-    }
-
-    // The status display polls this during boot, before imu_init() completes.
-    if (!s_imu_initialized) {
-        int n = snprintf(buf, cap, "P/R/Y: --- (IMU init)");
-        return (n > 0) ? (size_t)n : 0;
-    }
-
-    float pitch = 0, roll = 0, yaw = 0;
-    if (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
-        int n =
-            snprintf(buf, cap, "P:%.1f R:%.1f Y:%.1f deg", (double)pitch, (double)roll, (double)yaw);
-        return (n > 0) ? (size_t)n : 0;
-    }
-    int n = snprintf(buf, cap, "P/R/Y: --- (IMU off)");
-    return (n > 0) ? (size_t)n : 0;
 }

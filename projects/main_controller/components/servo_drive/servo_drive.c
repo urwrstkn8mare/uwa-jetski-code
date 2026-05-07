@@ -9,6 +9,8 @@ static const char *TAG = "servo_pwm";
 static bool s_ready;
 static uint32_t s_ch0_us = 1500;
 static uint32_t s_ch1_us = 1500;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static int16_t pulse_to_deg(int32_t pulse_us) { return (int16_t)((pulse_us - 1500) / 25); }
 
@@ -23,13 +25,15 @@ static uint32_t clamp_pulse_us(uint32_t us) {
 }
 
 static uint32_t pulse_us_to_duty(uint32_t pulse_us) {
-  /* 50 Hz period = 20000 us; 14-bit duty range = [0,16383]. */
   return (pulse_us * ((1u << LEDC_TIMER_14_BIT) - 1u)) / 20000u;
 }
 
 bool servo_drive_is_ready(void) { return s_ready; }
 
-esp_err_t servo_drive_init(void) {
+esp_err_t servo_drive_init(status_write_cb_t status_write, void *status_write_ctx) {
+  s_status_write = status_write;
+  s_status_write_ctx = status_write_ctx;
+
   ledc_timer_config_t timer = {
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .duty_resolution = LEDC_TIMER_14_BIT,
@@ -71,6 +75,9 @@ esp_err_t servo_drive_init(void) {
   }
 
   s_ready = true;
+  if (s_status_write) {
+    s_status_write(s_status_write_ctx, "Servo", "S0:%" PRIu32 " S1:%" PRIu32, s_ch0_us, s_ch1_us);
+  }
   ESP_LOGI(TAG, "PWM servo outputs enabled: ch0->GPIO%d ch1->GPIO%d @ 50Hz",
            CONFIG_SERVO1_GPIO, CONFIG_SERVO2_GPIO);
   return ESP_OK;
@@ -79,7 +86,6 @@ esp_err_t servo_drive_init(void) {
 void servo_drive_set_pct(uint16_t pot_pct_0_100) {
   uint16_t pot = (pot_pct_0_100 > 100) ? 100 : pot_pct_0_100;
   uint32_t p0 = clamp_pulse_us(1000u + (uint32_t)pot * 10u);
-  /* Mirror around center (1500us): one side up while the other side down. */
   uint32_t p1 = clamp_pulse_us(3000u - p0);
   s_ch0_us = p0;
   s_ch1_us = p1;
@@ -92,6 +98,9 @@ void servo_drive_set_pct(uint16_t pot_pct_0_100) {
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
   (void)ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, d1);
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+  if (s_status_write) {
+    s_status_write(s_status_write_ctx, "Servo", "S0:%" PRIu32 " S1:%" PRIu32, p0, p1);
+  }
 }
 
 void servo_drive_get_commanded_deg(int16_t *deg_a, int16_t *deg_b) {
@@ -112,19 +121,4 @@ void servo_drive_get_pulse_us(uint32_t *ch0_us_out, uint32_t *ch1_us_out) {
   if (ch1_us_out) {
     *ch1_us_out = s_ch1_us;
   }
-}
-
-size_t servo_drive_status_line_write(char *buf, size_t cap) {
-  if (buf == NULL || cap == 0) {
-    return 0;
-  }
-  if (!s_ready) {
-    int n = snprintf(buf, cap, "Servo: off");
-    return (n > 0) ? (size_t)n : 0;
-  }
-  uint32_t mch0_us = 0;
-  uint32_t mch1_us = 0;
-  servo_drive_get_pulse_us(&mch0_us, &mch1_us);
-  int n = snprintf(buf, cap, "S0:%" PRIu32 " S1:%" PRIu32, mch0_us, mch1_us);
-  return (n > 0) ? (size_t)n : 0;
 }

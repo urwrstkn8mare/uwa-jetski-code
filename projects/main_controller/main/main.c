@@ -1,7 +1,3 @@
-/*
- * Main controller (T-Display-S3): debug display + servos + CAN + height + IMU.
- */
-
 #include "app_state.h"
 #include "can.h"
 #include "can_ids.h"
@@ -10,7 +6,7 @@
 #include "freertos/task.h"
 #include "height.h"
 #include "imu.h"
-#include "lvgl_status_display.h"
+#include "status_ui.h"
 #include "servo_drive.h"
 #include "t_display_s3.h"
 
@@ -27,93 +23,16 @@ enum { kTaskPeriodMs = 50 };
 enum { kWorkTaskPrio = 2 };
 
 static tdisplays3_handle_t s_tdisp_board;
-static lvgl_status_display_t s_status_dsp;
+static status_ui_t s_status_ui;
 
 static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
   (void)timestamp;
   app_state_on_can_rx(buffer, header_id);
 }
 
-static esp_err_t can_start(void) { return can_init(on_can_rx); }
+static void main_status_lock(void) { tdisplays3_display_lock(200); }
 
-static esp_err_t init_retry(const char *name, esp_err_t (*fn)(void), int n) {
-  esp_err_t r = ESP_FAIL;
-  for (int i = 0; i < n; i++) {
-    r = fn();
-    if (r == ESP_OK) {
-      return ESP_OK;
-    }
-    ESP_LOGW(TAG, "%s init fail (%d/%d): %s", name, i + 1, n, esp_err_to_name(r));
-    vTaskDelay(pdMS_TO_TICKS(400));
-  }
-  return r;
-}
-
-static size_t main_line_title(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  int n = snprintf(buf, cap, "MAIN controller");
-  return (n > 0) ? (size_t)n : 0;
-}
-
-static size_t main_line_display(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  app_state_t s;
-  app_state_get(&s);
-  int n = snprintf(buf, cap, "Display:%s", s.display_ok ? "ok" : "off");
-  return (n > 0) ? (size_t)n : 0;
-}
-
-static size_t main_line_can(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  app_state_t st;
-  app_state_get(&st);
-  if (st.can_ok && can_is_ready()) {
-    int n = can_snprintf_board_status(buf, cap);
-    return (n > 0) ? (size_t)n : 0;
-  }
-  int n = snprintf(buf, cap, "CAN off (TWAI down)");
-  return (n > 0) ? (size_t)n : 0;
-}
-
-static size_t main_line_flags(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  return app_state_debug_flags_line_write(buf, cap);
-}
-
-static size_t main_line_imu(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  return imu_status_line_write(buf, cap);
-}
-
-static size_t main_line_height(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  return height_status_line_write(buf, cap);
-}
-
-static size_t main_line_servo(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  return servo_drive_status_line_write(buf, cap);
-}
-
-static size_t main_line_rudder_demand(char *buf, size_t cap, void *ctx) {
-  (void)ctx;
-  uint16_t pot = 50;
-  bool pot_fresh = app_state_pot_fresh(500, &pot);
-  int n =
-      snprintf(buf, cap, "Rudder: %s %u%%", pot_fresh ? "CAN" : "DEMO", (unsigned)pot);
-  return (n > 0) ? (size_t)n : 0;
-}
-
-static const lvgl_status_line_t MAIN_STATUS_LINES[] = {
-    {.write = main_line_title, .ctx = NULL},
-    {.write = main_line_display, .ctx = NULL},
-    {.write = main_line_can, .ctx = NULL},
-    {.write = main_line_flags, .ctx = NULL},
-    {.write = main_line_imu, .ctx = NULL},
-    {.write = main_line_height, .ctx = NULL},
-    {.write = main_line_servo, .ctx = NULL},
-    {.write = main_line_rudder_demand, .ctx = NULL},
-};
+static void main_status_unlock(void) { tdisplays3_display_unlock(); }
 
 static void main_status_display_init(void) {
   app_state_set_display(false);
@@ -135,33 +54,22 @@ static void main_status_display_init(void) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-  lv_obj_t *lbl = lv_label_create(scr);
-  if (lbl == NULL) {
-    ESP_LOGW(TAG, "Label create failed — display online without debug text");
-    tdisplays3_display_unlock();
-    return;
+  const status_ui_cfg_t cfg = {
+      .parent = scr,
+      .lock_cb = main_status_lock,
+      .unlock_cb = main_status_unlock,
+      .min_interval_ms = 200,
+  };
+  if (status_ui_start(&s_status_ui, &cfg) != ESP_OK) {
+    ESP_LOGW(TAG, "status display init failed");
   }
-  lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
-  lv_obj_set_style_text_font(lbl, LV_FONT_DEFAULT, LV_PART_MAIN);
-  {
-    const lv_coord_t hres = lv_display_get_horizontal_resolution(s_tdisp_board.display);
-    lv_obj_set_width(lbl, hres > 8 ? hres - 8 : hres);
-  }
-  lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
-  lv_obj_set_style_text_line_space(lbl, 2, LV_PART_MAIN);
-  lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 4, 4);
-  lv_label_set_text(lbl, "MAIN controller\nBooting…");
+
   tdisplays3_display_unlock();
   ESP_LOGI(TAG, "Display debug label ready");
-
-  const size_t nlines = sizeof(MAIN_STATUS_LINES) / sizeof(MAIN_STATUS_LINES[0]);
-  if (lvgl_status_display_start(&s_status_dsp, lbl, MAIN_STATUS_LINES, nlines, 200, 1024) != ESP_OK) {
-    ESP_LOGW(TAG, "status display timer failed — static boot text only");
-  }
 }
 
 static void task_loop(void *arg) {
-  (void)arg;
+  status_ui_t *disp = (status_ui_t *)arg;
   for (;;) {
     app_state_t st;
     app_state_get(&st);
@@ -210,6 +118,32 @@ static void task_loop(void *arg) {
       }
     }
 
+    if (disp != NULL) {
+      if (can_is_ready()) {
+        char buf[128];
+        int n = can_snprintf_board_status(buf, sizeof(buf));
+        if (n > 0) {
+          status_ui_update(disp, "CAN", "%s", buf);
+        }
+      } else {
+        status_ui_update(disp, "CAN", "CAN off (TWAI down)");
+      }
+
+      {
+        char buf[128];
+        size_t n = app_state_debug_flags_line_write(buf, sizeof(buf));
+        if (n > 0) {
+          status_ui_update(disp, "Flags", "%s", buf);
+        }
+      }
+
+      uint16_t pot = 50;
+      bool pot_fresh = app_state_pot_fresh(500, &pot);
+      status_ui_update(disp, "Rudder",
+                                 "Rudder: %s %u%%",
+                                 pot_fresh ? "CAN" : "DEMO", (unsigned)pot);
+    }
+
     vTaskDelay(pdMS_TO_TICKS(kTaskPeriodMs));
   }
 }
@@ -218,29 +152,29 @@ void app_main(void) {
   app_state_init();
   main_status_display_init();
 
-  const bool servo_ok = (servo_drive_init() == ESP_OK);
+  const bool servo_ok = (servo_drive_init(status_ui_update, &s_status_ui) == ESP_OK);
   app_state_set_servo(servo_ok);
   if (!servo_ok) {
     ESP_LOGW(TAG, "servo init failed");
   }
 
-  if (xTaskCreate(task_loop, "io", 4096, NULL, kWorkTaskPrio, NULL) != pdPASS) {
+  if (xTaskCreate(task_loop, "io", 4096, &s_status_ui, kWorkTaskPrio, NULL) != pdPASS) {
     ESP_LOGE(TAG, "io task create failed");
   }
 
-  const bool can_ok = (init_retry("CAN", can_start, 3) == ESP_OK);
+  const bool can_ok = (can_init(on_can_rx) == ESP_OK);
   app_state_set_can(can_ok);
   if (!can_ok) {
     ESP_LOGW(TAG, "CAN off");
   }
 
-  const bool imu_ok = (init_retry("IMU", imu_init, 3) == ESP_OK);
+  const bool imu_ok = (imu_init(status_ui_update, &s_status_ui) == ESP_OK);
   app_state_set_imu(imu_ok);
   if (!imu_ok) {
     ESP_LOGW(TAG, "IMU off — no attitude CAN");
   }
 
-  const bool height_ok = (init_retry("Height", height_init, 3) == ESP_OK);
+  const bool height_ok = (height_init(status_ui_update, &s_status_ui) == ESP_OK);
   app_state_set_height(height_ok);
   if (!height_ok) {
     ESP_LOGW(TAG, "height sensor off — no height CAN");

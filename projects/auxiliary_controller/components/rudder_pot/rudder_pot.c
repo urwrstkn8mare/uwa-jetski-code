@@ -16,6 +16,8 @@ static const char *TAG = "rudder_pot";
 static adc_oneshot_unit_handle_t s_adc;
 static uint16_t s_last_pct;
 static int s_last_raw;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static void pot_tx_task(void *arg) {
   (void)arg;
@@ -48,6 +50,10 @@ static void pot_tx_task(void *arg) {
           loop++;
           if ((loop % 20u) == 0u) {
             ESP_LOGI(TAG, "POT %u%% raw=%d CAN tx=%s", (unsigned)pct, raw, ok ? "ok" : "drop");
+            if (s_status_write) {
+              s_status_write(s_status_write_ctx, "Rudder POT", "Pot %u%% raw %d [%d..%d]",
+                             (unsigned)pct, raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX);
+            }
           }
         }
       }
@@ -56,7 +62,10 @@ static void pot_tx_task(void *arg) {
   }
 }
 
-esp_err_t rudder_pot_init(void) {
+esp_err_t rudder_pot_init(status_write_cb_t status_write, void *status_write_ctx) {
+  s_status_write = status_write;
+  s_status_write_ctx = status_write_ctx;
+
   adc_channel_t ch;
   adc_unit_t uu;
   esp_err_t map_e = adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &uu, &ch);
@@ -90,12 +99,3 @@ esp_err_t rudder_pot_init(void) {
 uint16_t rudder_pot_get_last_pct(void) { return s_last_pct; }
 
 int rudder_pot_get_last_raw(void) { return s_last_raw; }
-
-size_t rudder_pot_status_line_write(char *buf, size_t cap) {
-  if (buf == NULL || cap == 0) {
-    return 0;
-  }
-  int n = snprintf(buf, cap, "Pot %u%% raw %d [%d..%d]", (unsigned)rudder_pot_get_last_pct(),
-                   rudder_pot_get_last_raw(), CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX);
-  return (n > 0) ? (size_t)n : 0;
-}

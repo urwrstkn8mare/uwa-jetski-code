@@ -49,6 +49,3 @@ void dashboard_ui_set_battery(dashboard_ui_t *ui, int32_t percent, int32_t volta
 void dashboard_ui_set_motor(dashboard_ui_t *ui, int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c);
 void dashboard_ui_set_rudder(dashboard_ui_t *ui, int32_t rudder_deg);
 void dashboard_ui_set_elevons(dashboard_ui_t *ui, int32_t left_deg, int32_t right_deg);
-
-/** Create a bottom status strip label (scrolling) and return the label. */
-lv_obj_t *dashboard_ui_create_status_strip(lv_obj_t *screen, int32_t h_res, int32_t strip_h_px);

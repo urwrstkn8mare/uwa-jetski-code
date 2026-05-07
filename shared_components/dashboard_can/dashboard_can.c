@@ -12,6 +12,8 @@ static dashboard_ui_t *s_ui;
 static dashboard_can_lock_fn_t s_lock;
 static dashboard_can_unlock_fn_t s_unlock;
 static void *s_lock_ctx;
+static status_write_cb_t s_status_write = NULL;
+static void *s_status_write_ctx = NULL;
 
 static void with_lock(void (*fn)(void)) {
   if (s_lock == NULL || s_unlock == NULL || fn == NULL) {
@@ -69,7 +71,6 @@ static void paint_gps_vel(void) {
     return;
   }
   dashboard_ui_set_speed(s_ui, (int32_t)lroundf(s_speed_knots * 1.852f));
-  /* Use GPS heading only if attitude hasn't set it recently. */
   if (!s_have_attitude) {
     int32_t h = (int32_t)lroundf(s_heading_deg);
     h %= 360;
@@ -86,6 +87,17 @@ static void paint_pot(void) {
   }
   int32_t rudder = ((int32_t)s_pot_pct * 40) / 100 - 20;
   dashboard_ui_set_rudder(s_ui, rudder);
+}
+
+static void push_can_status(void) {
+  if (s_status_write == NULL) {
+    return;
+  }
+  char buf[96];
+  int n = can_snprintf_board_status(buf, sizeof(buf));
+  if (n > 0) {
+    s_status_write(s_status_write_ctx, "CAN", "%s", buf);
+  }
 }
 
 static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
@@ -134,10 +146,11 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   default:
     break;
   }
+  push_can_status();
 }
 
 esp_err_t dashboard_can_attach(dashboard_ui_t *ui, dashboard_can_lock_fn_t lock, dashboard_can_unlock_fn_t unlock,
-                               void *lock_ctx) {
+                               void *lock_ctx, status_write_cb_t status_write, void *status_write_ctx) {
   if (ui == NULL || lock == NULL || unlock == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -145,6 +158,8 @@ esp_err_t dashboard_can_attach(dashboard_ui_t *ui, dashboard_can_lock_fn_t lock,
   s_lock = lock;
   s_unlock = unlock;
   s_lock_ctx = lock_ctx;
+  s_status_write = status_write;
+  s_status_write_ctx = status_write_ctx;
   s_have_attitude = false;
   s_have_height = false;
   s_have_servo = false;
@@ -154,22 +169,3 @@ esp_err_t dashboard_can_attach(dashboard_ui_t *ui, dashboard_can_lock_fn_t lock,
 }
 
 esp_err_t dashboard_can_start(void) { return can_init(on_can_rx); }
-
-size_t dashboard_can_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
-  }
-  int written = can_snprintf_board_status(buffer, len);
-  return (written > 0) ? (size_t)written : 0;
-}
-
-size_t dashboard_can_unavailable_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
-  }
-
-  int written = snprintf(buffer, len, "CAN unavailable");
-  return (written > 0) ? (size_t)written : 0;
-}

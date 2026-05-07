@@ -1138,31 +1138,6 @@ void dashboard_ui_destroy(dashboard_ui_t *ui) {
   free(ui);
 }
 
-lv_obj_t *dashboard_ui_create_status_strip(lv_obj_t *screen, int32_t h_res, int32_t strip_h_px) {
-  if (screen == NULL || h_res <= 0 || strip_h_px <= 0) {
-    return NULL;
-  }
-
-  lv_obj_t *strip_bg = lv_obj_create(screen);
-  lv_obj_remove_style_all(strip_bg);
-  lv_obj_remove_flag(strip_bg, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(strip_bg, h_res, strip_h_px);
-  lv_obj_align(strip_bg, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_set_style_bg_color(strip_bg, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(strip_bg, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_width(strip_bg, 0, 0);
-
-  lv_obj_t *label = lv_label_create(strip_bg);
-  lv_obj_set_size(label, h_res - 6, strip_h_px - 2);
-  lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_bg_color(label, lv_color_black(), 0);
-  lv_obj_set_style_bg_opa(label, LV_OPA_COVER, 0);
-  lv_obj_set_style_text_color(label, lv_color_hex(0xCFCFCF), 0);
-  lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
-  lv_label_set_text(label, "…");
-  return label;
-}
-
 void dashboard_ui_set_speed(dashboard_ui_t *ui, int32_t speed_kmh) {
   if (ui == NULL) {
     return;

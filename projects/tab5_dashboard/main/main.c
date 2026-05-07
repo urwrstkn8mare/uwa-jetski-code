@@ -8,7 +8,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "lvgl.h"
-#include "lvgl_status_display.h"
+#include "status_ui.h"
 #include "sdkconfig.h"
 #include "esp_io_expander.h"
 #include "ui/dashboard_font.h"
@@ -19,7 +19,7 @@
 static const char *TAG = "tab5_main";
 
 static dashboard_ui_t *s_ui;
-static lvgl_status_display_t s_strip;
+static status_ui_t s_strip;
 
 extern int FT_Stream_Open(void *stream, const char *filepathname);
 static void *__attribute__((used, section(".data"))) force_lv_ftsystem_link_ptr =
@@ -82,6 +82,10 @@ static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *use
   return NULL;
 }
 
+static void tab5_status_lock(void) { bsp_display_lock(portMAX_DELAY); }
+
+static void tab5_status_unlock(void) { bsp_display_unlock(); }
+
 #if !CONFIG_TAB5_DASHBOARD_FEED_MODE_DEMO
 static esp_err_t tab5_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
@@ -95,6 +99,7 @@ static void tab5_can_unlock(void *ctx) {
 }
 #endif
 
+#if CONFIG_TAB5_DASHBOARD_FEED_MODE_DEMO
 typedef struct {
   dashboard_ui_t *ui;
   uint32_t start_ms;
@@ -102,18 +107,13 @@ typedef struct {
 
 static demo_ctx_t s_demo_ctx;
 
-static size_t demo_status_strip_write(char *buffer, size_t len, void *user) {
-  (void)user;
-  if (buffer == NULL || len == 0) {
-    return 0;
+static void demo_status_timer_cb(lv_timer_t *timer) {
+  status_ui_t *disp = lv_timer_get_user_data(timer);
+  if (disp == NULL) {
+    return;
   }
-
-  const int hz = CONFIG_TAB5_DASHBOARD_DEMO_HZ;
-  int n = snprintf(buffer, len, "DEMO %dHz", (hz > 0) ? hz : 1);
-  if (n < 0) {
-    return 0;
-  }
-  return (size_t)n;
+  const int hz = (CONFIG_TAB5_DASHBOARD_DEMO_HZ > 0) ? CONFIG_TAB5_DASHBOARD_DEMO_HZ : 1;
+  status_ui_update(disp, "Demo", "DEMO %dHz", hz);
 }
 
 static void demo_timer_cb(lv_timer_t *timer) {
@@ -126,6 +126,7 @@ static void demo_timer_cb(lv_timer_t *timer) {
   const uint32_t elapsed_ms = lv_tick_elaps(ctx->start_ms);
   dashboard_demo_update_ui(ctx->ui, elapsed_ms);
 }
+#endif
 
 void app_main(void) {
   lv_display_t *disp = NULL;
@@ -143,9 +144,9 @@ void app_main(void) {
   lv_obj_t *screen = lv_screen_active();
   lv_display_t *default_disp = lv_display_get_default();
   const int32_t h_res = default_disp ? (int32_t)lv_display_get_horizontal_resolution(default_disp)
-                                     : 1280;
+                                      : 1280;
   const int32_t v_res = default_disp ? (int32_t)lv_display_get_vertical_resolution(default_disp)
-                                     : 720;
+                                      : 720;
 
   const int32_t strip_h_px = 28;
   const int32_t dashboard_h = v_res - strip_h_px;
@@ -169,13 +170,6 @@ void app_main(void) {
     return;
   }
 
-  lv_obj_t *strip_label = dashboard_ui_create_status_strip(screen, h_res, strip_h_px);
-  if (strip_label == NULL) {
-    ESP_LOGE(TAG, "Failed to create status strip label");
-    bsp_display_unlock();
-    return;
-  }
-
 #if CONFIG_TAB5_DASHBOARD_FEED_MODE_DEMO
   s_demo_ctx.ui = s_ui;
   s_demo_ctx.start_ms = lv_tick_get();
@@ -184,26 +178,44 @@ void app_main(void) {
   const uint32_t demo_period_ms = (1000u + (demo_hz / 2u)) / demo_hz;
 
   (void)lv_timer_create(demo_timer_cb, demo_period_ms, &s_demo_ctx);
-
   dashboard_demo_update_ui(s_ui, 0);
 
-  lvgl_status_line_t lines[1] = {
-      {.write = demo_status_strip_write, .ctx = NULL},
+  const status_ui_cfg_t cfg = {
+      .parent = screen,
+      .flex_flow = LV_FLEX_FLOW_ROW,
+      .w = h_res,
+      .h = strip_h_px,
+      .align = LV_ALIGN_BOTTOM_MID,
+      .bg_opa = LV_OPA_COVER,
+      .lock_cb = tab5_status_lock,
+      .unlock_cb = tab5_status_unlock,
+      .min_interval_ms = 250,
   };
-  ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1, 250, 64));
+  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+
+  (void)lv_timer_create(demo_status_timer_cb, 250, &s_strip);
 #else
-  ESP_ERROR_CHECK(dashboard_can_attach(s_ui, tab5_can_lock, tab5_can_unlock, NULL));
-  lvgl_status_line_t lines[1] = {{0}};
+  ESP_ERROR_CHECK(dashboard_can_attach(s_ui, tab5_can_lock, tab5_can_unlock, NULL,
+                                       status_ui_update, &s_strip));
+
+  const status_ui_cfg_t cfg = {
+      .parent = screen,
+      .flex_flow = LV_FLEX_FLOW_ROW,
+      .w = h_res,
+      .h = strip_h_px,
+      .align = LV_ALIGN_BOTTOM_MID,
+      .bg_opa = LV_OPA_COVER,
+      .lock_cb = tab5_status_lock,
+      .unlock_cb = tab5_status_unlock,
+      .min_interval_ms = 250,
+  };
+  ESP_ERROR_CHECK(status_ui_start(&s_strip, &cfg));
+
   esp_err_t can_err = dashboard_can_start();
   if (can_err != ESP_OK) {
     ESP_LOGW(TAG, "CAN start failed: %s (UI will stay up)", esp_err_to_name(can_err));
-    lines[0].write = dashboard_can_unavailable_status_strip_write;
-    lines[0].ctx = NULL;
-  } else {
-    lines[0].write = dashboard_can_status_strip_write;
-    lines[0].ctx = NULL;
+    status_ui_update(&s_strip, "CAN", "CAN off (TWAI down)");
   }
-  ESP_ERROR_CHECK(lvgl_status_display_start(&s_strip, strip_label, lines, 1, 250, 96));
 #endif
 
   bsp_display_unlock();
