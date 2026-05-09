@@ -121,6 +121,11 @@ static void height_task(void *pvParameters) {
 }
 
 esp_err_t height_init(void) {
+#if CONFIG_HEIGHT_SKIP_HW
+    ESP_LOGW(TAG, "Height sensor disabled by Kconfig (CONFIG_HEIGHT_SKIP_HW)");
+    return ESP_FAIL;
+#endif
+
     static bool mutex_ready;
 
     if (!mutex_ready) {

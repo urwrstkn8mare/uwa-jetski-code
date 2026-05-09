@@ -1,4 +1,7 @@
 menu "UWA Jetski — Height sensor (A02YYUW) configuration"
+    config HEIGHT_SKIP_HW
+        bool "Disable A02YYUW hardware init"
+        default n
 
     config HEIGHT_UART_PORT
         int "UART port number for A02YYUW"

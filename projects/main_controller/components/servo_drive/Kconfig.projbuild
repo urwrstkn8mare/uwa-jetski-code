@@ -1,4 +1,8 @@
 menu "UWA Jetski — Direct PWM Servos"
+    config SERVO_SKIP_HW
+        bool "Disable servo hardware init"
+        default n
+
     config SERVO1_GPIO
         int "Servo 1 PWM GPIO"
         range 0 48

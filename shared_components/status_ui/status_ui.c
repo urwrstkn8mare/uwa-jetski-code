@@ -8,19 +8,25 @@
 
 static const char *TAG = "status_ui";
 
-/* Singleton instance */
+enum { MAX_ENTRIES = 16 };
+enum { TAG_LEN = 16 };
+enum { TEXT_CAP = 256 };
+
+typedef struct {
+  char tag[TAG_LEN];
+  char text[TEXT_CAP];
+  lv_obj_t *label;
+  int64_t last_update_us;
+} entry_t;
+
 typedef struct {
   lv_obj_t *container;
   void (*lock_cb)(void);
   void (*unlock_cb)(void);
   uint32_t min_interval_ms;
-  struct {
-    char tag[16];
-    lv_obj_t *label;
-    int64_t last_update_us;
-  } entries[16];
+  entry_t entries[MAX_ENTRIES];
   size_t entry_count;
-  char scratch[256];
+  char scratch[TEXT_CAP];
   bool initialized;
 } status_ui_t;
 
@@ -41,7 +47,6 @@ esp_err_t status_ui_start(const status_ui_cfg_t *cfg) {
   s_status_ui.unlock_cb = cfg->unlock_cb;
   s_status_ui.min_interval_ms = cfg->min_interval_ms;
 
-  /* Acquire lock before creating LVGL objects */
   if (s_status_ui.lock_cb) {
     s_status_ui.lock_cb();
   }
@@ -67,7 +72,6 @@ esp_err_t status_ui_start(const status_ui_cfg_t *cfg) {
     lv_obj_align(s_status_ui.container, cfg->align, 0, 0);
   }
 
-  /* Release lock after creating LVGL objects */
   if (s_status_ui.unlock_cb) {
     s_status_ui.unlock_cb();
   }
@@ -81,29 +85,26 @@ void status_ui_stop(void) {
     return;
   }
 
+  if (s_status_ui.lock_cb) {
+    s_status_ui.lock_cb();
+  }
+
   for (size_t i = 0; i < s_status_ui.entry_count; i++) {
-    if (s_status_ui.lock_cb) {
-      s_status_ui.lock_cb();
-    }
     if (s_status_ui.entries[i].label != NULL) {
       lv_obj_delete(s_status_ui.entries[i].label);
       s_status_ui.entries[i].label = NULL;
     }
-    if (s_status_ui.unlock_cb) {
-      s_status_ui.unlock_cb();
-    }
   }
 
-  /* Acquire lock before deleting container */
-  if (s_status_ui.lock_cb) {
-    s_status_ui.lock_cb();
+  if (s_status_ui.container != NULL) {
+    lv_obj_delete(s_status_ui.container);
+    s_status_ui.container = NULL;
   }
-  lv_obj_delete(s_status_ui.container);
+
   if (s_status_ui.unlock_cb) {
     s_status_ui.unlock_cb();
   }
 
-  s_status_ui.container = NULL;
   memset(&s_status_ui, 0, sizeof(s_status_ui));
 }
 
@@ -119,13 +120,13 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
   size_t idx = s_status_ui.entry_count;
 
   for (size_t i = 0; i < s_status_ui.entry_count; i++) {
-    if (strncmp(s_status_ui.entries[i].tag, tag, sizeof(s_status_ui.entries[i].tag)) == 0) {
+    if (strncmp(s_status_ui.entries[i].tag, tag, TAG_LEN) == 0) {
       idx = i;
       break;
     }
   }
 
-  if (idx == s_status_ui.entry_count && idx >= (sizeof(s_status_ui.entries) / sizeof(s_status_ui.entries[0]))) {
+  if (idx == s_status_ui.entry_count && idx >= MAX_ENTRIES) {
     ESP_LOGW(TAG, "Too many status tags, ignoring \"%s\"", tag);
     return;
   }
@@ -151,33 +152,21 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
     n = (int)(sizeof(s_status_ui.scratch) - 1);
   }
 
-  if (idx >= s_status_ui.entry_count) {
-    if (s_status_ui.lock_cb) {
-      s_status_ui.lock_cb();
-    }
-    lv_obj_t *label = lv_label_create(s_status_ui.container);
-    if (label == NULL) {
-      if (s_status_ui.unlock_cb) {
-        s_status_ui.unlock_cb();
-      }
-      return;
-    }
-    strncpy(s_status_ui.entries[idx].tag, tag, sizeof(s_status_ui.entries[idx].tag) - 1);
-    s_status_ui.entries[idx].label = label;
-    s_status_ui.entries[idx].last_update_us = now;
-    s_status_ui.entry_count++;
-    lv_label_set_text(label, s_status_ui.scratch);
-    if (s_status_ui.unlock_cb) {
-      s_status_ui.unlock_cb();
-    }
-    return;
-  }
-
   if (s_status_ui.lock_cb) {
     s_status_ui.lock_cb();
   }
-  s_status_ui.entries[idx].last_update_us = now;
+
+  if (idx >= s_status_ui.entry_count) {
+    snprintf(s_status_ui.entries[idx].tag, TAG_LEN, "%s", tag);
+    lv_obj_t *lbl = lv_label_create(s_status_ui.container);
+    lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(lbl, LV_OPA_COVER, 0);
+    s_status_ui.entries[idx].label = lbl;
+    s_status_ui.entry_count++;
+  }
   lv_label_set_text(s_status_ui.entries[idx].label, s_status_ui.scratch);
+  s_status_ui.entries[idx].last_update_us = now;
+
   if (s_status_ui.unlock_cb) {
     s_status_ui.unlock_cb();
   }

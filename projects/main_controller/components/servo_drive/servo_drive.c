@@ -3,6 +3,7 @@
 #include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -30,6 +31,11 @@ static uint32_t pulse_us_to_duty(uint32_t pulse_us) {
 bool servo_drive_is_ready(void) { return s_ready; }
 
 esp_err_t servo_drive_init(void) {
+#if CONFIG_SERVO_SKIP_HW
+  ESP_LOGW(TAG, "Servo PWM disabled by Kconfig (CONFIG_SERVO_SKIP_HW)");
+  return ESP_FAIL;
+#endif
+
   ledc_timer_config_t timer = {
       .speed_mode = LEDC_LOW_SPEED_MODE,
       .duty_resolution = LEDC_TIMER_14_BIT,

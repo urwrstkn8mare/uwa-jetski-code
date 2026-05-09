@@ -43,18 +43,17 @@ static void main_status_display_init(void) {
     ESP_LOGW(TAG, "Display handle null — serial only");
     return;
   }
-  if (!tdisplays3_display_lock(200)) {
-    ESP_LOGW(TAG, "LVGL display lock timeout — serial only");
-    return;
-  }
   app_state_set_display(true);
 
-  lv_obj_t *scr = lv_screen_active();
-  lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+  if (tdisplays3_display_lock(200)) {
+    lv_obj_t *scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    tdisplays3_display_unlock();
+  }
 
   const status_ui_cfg_t cfg = {
-      .parent = scr,
+      .parent = lv_screen_active(),
       .lock_cb = main_status_lock,
       .unlock_cb = main_status_unlock,
       .min_interval_ms = 200,
@@ -62,8 +61,6 @@ static void main_status_display_init(void) {
   if (status_ui_start(&cfg) != ESP_OK) {
     ESP_LOGW(TAG, "status display init failed");
   }
-
-  tdisplays3_display_unlock();
   ESP_LOGI(TAG, "Display debug label ready");
 }
 
@@ -149,7 +146,7 @@ void app_main(void) {
     ESP_LOGW(TAG, "servo init failed");
   }
 
-  if (xTaskCreate(task_loop, "io", 4096, NULL, kWorkTaskPrio, NULL) != pdPASS) {
+  if (xTaskCreate(task_loop, "io", 8192, NULL, kWorkTaskPrio, NULL) != pdPASS) {
     ESP_LOGE(TAG, "io task create failed");
   }
 

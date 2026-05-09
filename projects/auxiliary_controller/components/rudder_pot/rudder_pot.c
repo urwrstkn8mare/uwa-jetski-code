@@ -60,6 +60,11 @@ static void pot_tx_task(void *arg) {
 }
 
 esp_err_t rudder_pot_init(void) {
+#if CONFIG_POT_SKIP_HW
+  ESP_LOGW(TAG, "Potentiometer disabled by Kconfig (CONFIG_POT_SKIP_HW)");
+  return ESP_FAIL;
+#endif
+
   adc_channel_t ch;
   adc_unit_t uu;
   esp_err_t map_e = adc_oneshot_io_to_channel(CONFIG_POT_GPIO_NUM, &uu, &ch);

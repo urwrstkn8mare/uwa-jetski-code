@@ -1,4 +1,8 @@
 menu "UWA Jetski — Rudder potentiometer"
+    config POT_SKIP_HW
+        bool "Disable potentiometer hardware init"
+        default n
+
     config POT_GPIO_NUM
         int "ADC GPIO (rudder pot wiper)"
         range 1 48
