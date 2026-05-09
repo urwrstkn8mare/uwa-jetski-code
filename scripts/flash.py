@@ -38,7 +38,11 @@ def main() -> None:
 
     has_error = False
     for project_dir in projects:
-        serial_port = load_serial_port(project_dir)
+        try:
+            serial_port = load_serial_port(project_dir)
+        except SystemExit:
+            logging.info(f"{project_dir} doesn't have chosen port, skipping...")
+            continue
         code = run_idf_subcommand(project_dir, "flash", ["-p", serial_port, *idf_args])
         has_error = has_error or code != 0
 
