@@ -36,15 +36,6 @@ typedef enum {
 } ui_throttle_t;
 
 enum {
-  HEIGHT_TRACK_X = 54,
-  HEIGHT_TRACK_Y = 38,
-  HEIGHT_TRACK_W = 4,
-  HEIGHT_TRACK_H = 196,
-  HEIGHT_MIN_CM = 0,
-  HEIGHT_MAX_CM = 50,
-};
-
-enum {
   ATTITUDE_SCALE_PX = 6,
   ATTITUDE_TICK_COUNT = 6,
 };
@@ -61,13 +52,16 @@ typedef struct {
 
 typedef struct {
   lv_obj_t *root;
-  lv_obj_t *current_label;
-  lv_obj_t *target_label;
-  lv_obj_t *top_label;
-  lv_obj_t *bottom_label;
-  lv_obj_t *track;
-  lv_obj_t *current_marker;
-  lv_obj_t *target_marker;
+  lv_obj_t *canvas;
+  lv_obj_t *cur_value_label;
+  lv_obj_t *cur_unit_label;
+  lv_obj_t *cur_caption_label;
+  lv_obj_t *tgt_value_label;
+  lv_obj_t *tgt_unit_label;
+  lv_obj_t *tgt_caption_label;
+  void *draw_buf_mem;
+  int32_t current_cm;
+  int32_t target_cm;
   int32_t card_w;
   int32_t card_h;
 } height_card_t;
@@ -114,6 +108,7 @@ typedef struct {
   lv_obj_t *value_label;
   lv_obj_t *bar;
   lv_obj_t *zero_mark;
+  bool vertical;
   int32_t card_w;
   int32_t card_h;
 } control_surface_card_t;
@@ -134,6 +129,8 @@ typedef struct {
   int64_t last_update_us[kUiThrottleCount];
   dashboard_ui_lock_fn_t lock_cb;
   dashboard_ui_unlock_fn_t unlock_cb;
+  font_get_cb_t font_get_cb;
+  void *font_get_user_data;
   bool initialized;
 } dashboard_ui_t;
 
@@ -194,6 +191,16 @@ static const lv_font_t *load_font_variant(uint16_t size_px, int weight,
   return fallback;
 }
 
+static const lv_font_t *get_sized_font(int target_px, int weight) {
+  if (target_px < 1) target_px = 14;
+  if (s_dashboard_ui.font_get_cb) {
+    const lv_font_t *f = s_dashboard_ui.font_get_cb(target_px, weight, s_dashboard_ui.font_get_user_data);
+    if (f) return f;
+  }
+  ESP_LOGE(TAG, "NO AzeretMono font for %dpx weight %d — dashboard will be broken!", target_px, weight);
+  return NULL;
+}
+
 static void init_dashboard_fonts(font_get_cb_t font_get_cb,
                                  void *font_get_user_data) {
   speed_font = load_font_variant(96, 700, font_get_cb, font_get_user_data,
@@ -211,6 +218,9 @@ static void init_dashboard_fonts(font_get_cb_t font_get_cb,
                                  &lv_font_montserrat_14);
   title_font = load_font_variant(14, 700, font_get_cb, font_get_user_data,
                                  &lv_font_montserrat_14);
+
+  s_dashboard_ui.font_get_cb = font_get_cb;
+  s_dashboard_ui.font_get_user_data = font_get_user_data;
 }
 
 static void configure_screen(lv_obj_t *screen) {
@@ -553,6 +563,54 @@ static void attitude_canvas_draw(attitude_card_t *card, lv_layer_t *layer) {
   wing.p1.x = cx + 14;
   wing.p2.x = cx + 56;
   lv_draw_line(layer, &wing);
+
+  /* Yaw compass arrow (top-left) */
+  {
+    const int32_t heading = normalize_heading(card->heading_deg);
+    const int32_t arr_cx = 48;
+    const int32_t arr_cy = 48;
+    const int32_t s_yaw = lv_trigo_sin((int16_t)heading);
+    const int32_t c_yaw = lv_trigo_cos((int16_t)heading);
+    const int32_t arm_len = 20;
+    const int32_t base_half = 10;
+    const int32_t ind_len = 6;
+
+    int32_t tip_x = 0, tip_y = -arm_len;
+    int32_t bl_x = -base_half, bl_y = arm_len - 6;
+    int32_t br_x = base_half, br_y = arm_len - 6;
+    int32_t il_x = -ind_len, il_y = arm_len - 2;
+    int32_t ir_x = ind_len, ir_y = arm_len - 2;
+
+    int32_t r_tip_x = arr_cx + ((tip_x * c_yaw - tip_y * s_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_tip_y = arr_cy + ((tip_x * s_yaw + tip_y * c_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_bl_x  = arr_cx + ((bl_x * c_yaw - bl_y * s_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_bl_y  = arr_cy + ((bl_x * s_yaw + bl_y * c_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_br_x  = arr_cx + ((br_x * c_yaw - br_y * s_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_br_y  = arr_cy + ((br_x * s_yaw + br_y * c_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_il_x  = arr_cx + ((il_x * c_yaw - il_y * s_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_il_y  = arr_cy + ((il_x * s_yaw + il_y * c_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_ir_x  = arr_cx + ((ir_x * c_yaw - ir_y * s_yaw) >> LV_TRIGO_SHIFT);
+    int32_t r_ir_y  = arr_cy + ((ir_x * s_yaw + ir_y * c_yaw) >> LV_TRIGO_SHIFT);
+
+    lv_draw_line_dsc_t arr;
+    lv_draw_line_dsc_init(&arr);
+    arr.color = lv_color_hex(0xF1D400);
+    arr.width = 3;
+    arr.p1.x = r_tip_x; arr.p1.y = r_tip_y;
+    arr.p2.x = r_bl_x;  arr.p2.y = r_bl_y;
+    lv_draw_line(layer, &arr);
+    arr.p1.x = r_tip_x; arr.p1.y = r_tip_y;
+    arr.p2.x = r_br_x;  arr.p2.y = r_br_y;
+    lv_draw_line(layer, &arr);
+    arr.p1.x = r_bl_x;  arr.p1.y = r_bl_y;
+    arr.p2.x = r_br_x;  arr.p2.y = r_br_y;
+    lv_draw_line(layer, &arr);
+
+    arr.width = 2;
+    arr.p1.x = r_il_x;  arr.p1.y = r_il_y;
+    arr.p2.x = r_ir_x;  arr.p2.y = r_ir_y;
+    lv_draw_line(layer, &arr);
+  }
 }
 
 static speed_card_t create_speed_card(lv_obj_t *parent, int32_t w, int32_t h) {
@@ -578,27 +636,31 @@ static speed_card_t create_speed_card(lv_obj_t *parent, int32_t w, int32_t h) {
   lv_obj_set_style_bg_opa(card.bar, (lv_opa_t)(255 * 0.72), LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(card.bar, lv_color_hex(0x404040), LV_PART_INDICATOR);
   lv_bar_set_range(card.bar, 0, 100);
-  lv_bar_set_value(card.bar, 50, LV_ANIM_OFF);
+  lv_bar_set_value(card.bar, 0, LV_ANIM_OFF);
 
-  lv_obj_t *speed_value = lv_obj_create(card.root);
-  lv_obj_remove_style_all(speed_value);
-  lv_obj_set_size(speed_value, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_all(speed_value, 0, 0);
-  lv_obj_set_style_bg_opa(speed_value, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_opa(speed_value, LV_OPA_TRANSP, 0);
-  lv_obj_set_flex_flow(speed_value, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(speed_value, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
-  lv_obj_add_flag(speed_value, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_add_flag(speed_value, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(speed_value, LV_ALIGN_CENTER, -6, -6);
+  lv_obj_t *sp_cont = lv_obj_create(card.root);
+  lv_obj_remove_style_all(sp_cont);
+  lv_obj_set_style_bg_opa(sp_cont, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(sp_cont, 0, 0);
+  lv_obj_set_style_pad_all(sp_cont, 0, 0);
+  lv_obj_set_style_clip_corner(sp_cont, false, 0);
+  lv_obj_set_flex_flow(sp_cont, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sp_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_width(sp_cont, lv_pct(95));
+  lv_obj_add_flag(sp_cont, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_align(sp_cont, LV_ALIGN_CENTER, 0, 0);
 
-  card.value_label = add_simple_label(speed_value, "50", speed_font,
+  const lv_font_t *sp_val_font = get_sized_font(h * 2 / 5, 700);
+  card.value_label = add_simple_label(sp_cont, "0", sp_val_font,
+                                       lv_color_white(), LV_OPA_COVER);
+  lv_obj_set_style_pad_left(card.value_label, 4, 0);
+  lv_obj_set_style_pad_right(card.value_label, 12, 0);
+
+  const lv_font_t *sp_unit_font = get_sized_font(h / 14, 400);
+  card.unit_label = add_simple_label(sp_cont, "km/h", sp_unit_font,
                                       lv_color_white(), LV_OPA_COVER);
-  card.unit_label = add_simple_label(speed_value, "km/h", small_font,
-                                     lv_color_white(), LV_OPA_COVER);
   lv_obj_set_style_translate_y(card.unit_label,
-                               get_baseline_offset(speed_font, small_font), 0);
+                               get_baseline_offset(sp_val_font, sp_unit_font), 0);
 
   card.caption_label = add_simple_label(card.root, "MAX 100 km/h", small_font,
                                         lv_color_white(), (lv_opa_t)(255 * 0.55));
@@ -622,74 +684,236 @@ static void speed_card_set_val(speed_card_t *card, int value, int max) {
   lv_bar_set_value(card->bar, clamped * 100 / max, LV_ANIM_OFF);
 }
 
+static void height_canvas_fill_background(height_card_t *card) {
+  if (card == NULL || card->canvas == NULL) return;
+  lv_draw_buf_t *draw_buf = lv_canvas_get_draw_buf(card->canvas);
+  if (draw_buf == NULL || draw_buf->header.cf != LV_COLOR_FORMAT_RGB565) return;
+
+  const int32_t w = (int32_t)draw_buf->header.w;
+  const int32_t h = (int32_t)draw_buf->header.h;
+  const uint16_t dark = lv_color_to_u16(lv_color_hex(0x000000));
+
+  for (int32_t y = 0; y < h; y++) {
+    uint16_t *row = (uint16_t *)lv_draw_buf_goto_xy(draw_buf, 0, (uint32_t)y);
+    if (row == NULL) continue;
+    for (int32_t x = 0; x < w; x++) {
+      row[x] = dark;
+    }
+  }
+  lv_draw_buf_flush_cache(draw_buf, NULL);
+}
+
+static void height_canvas_draw_overlay(height_card_t *card, lv_layer_t *layer) {
+  lv_draw_buf_t *draw_buf = lv_canvas_get_draw_buf(card->canvas);
+  if (draw_buf == NULL) return;
+  const int32_t w = (int32_t)draw_buf->header.w;
+  const int32_t h = (int32_t)draw_buf->header.h;
+  const int max_cm = 50;
+  const int32_t current_cm = clamp_i32(card->current_cm, 0, max_cm);
+  const int32_t target_cm = clamp_i32(card->target_cm, 0, max_cm);
+
+  const int track_cx = w / 2;
+  const int track_top = h / 8;
+  const int wave_h = h / 5;
+  const int track_bot = h - wave_h - h / 16;
+  const int track_len = track_bot - track_top;
+
+  lv_draw_line_dsc_t line;
+  lv_draw_line_dsc_init(&line);
+  line.color = lv_color_hex(0x999999);
+  line.width = 3;
+  line.p1.x = track_cx;
+  line.p1.y = track_top;
+  line.p2.x = track_cx;
+  line.p2.y = track_bot;
+  lv_draw_line(layer, &line);
+
+  lv_draw_line_dsc_t wave_line;
+  lv_draw_line_dsc_init(&wave_line);
+  wave_line.color = lv_color_hex(0x0099FF);
+  wave_line.width = 4;
+  int wave_base_y = track_bot;
+  int wave_len = 60;
+  int wave_left = track_cx - wave_len / 2;
+  int n_seg = 16;
+  for (int i = 0; i < n_seg; i++) {
+    int x0 = wave_left + i * wave_len / n_seg;
+    int x1 = wave_left + (i + 1) * wave_len / n_seg;
+    int32_t a0 = i * 5400 / n_seg;
+    int32_t a1 = (i + 1) * 5400 / n_seg;
+    int y0 = wave_base_y + (lv_trigo_sin(a0) * 6 / LV_TRIGO_SIN_MAX);
+    int y1 = wave_base_y + (lv_trigo_sin(a1) * 6 / LV_TRIGO_SIN_MAX);
+    wave_line.p1.x = x0;
+    wave_line.p1.y = y0;
+    wave_line.p2.x = x1;
+    wave_line.p2.y = y1;
+    lv_draw_line(layer, &wave_line);
+  }
+
+  int target_y = track_bot - (target_cm * track_len / max_cm);
+  lv_draw_line_dsc_t tline;
+  lv_draw_line_dsc_init(&tline);
+  tline.color = lv_color_hex(0xFFB000);
+  tline.width = 4;
+  tline.dash_width = 8;
+  tline.dash_gap = 6;
+  tline.p1.x = track_cx - 30;
+  tline.p1.y = target_y;
+  tline.p2.x = track_cx + 30;
+  tline.p2.y = target_y;
+  lv_draw_line(layer, &tline);
+
+  int current_y = track_bot - (current_cm * track_len / max_cm);
+  int cx = track_cx;
+  int cy = current_y;
+
+  lv_draw_line_dsc_t l;
+  lv_draw_line_dsc_init(&l);
+  l.color = lv_color_hex(0xF8F8F8);
+  l.round_start = 1;
+  l.round_end = 1;
+
+  l.width = 5;
+  l.p1.x = cx - 26; l.p1.y = cy;
+  l.p2.x = cx + 16; l.p2.y = cy;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx + 16; l.p1.y = cy;
+  l.p2.x = cx + 28; l.p2.y = cy - 5;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx + 28; l.p1.y = cy - 5;
+  l.p2.x = cx + 24; l.p2.y = cy - 14;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx + 24; l.p1.y = cy - 14;
+  l.p2.x = cx + 14; l.p2.y = cy - 11;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx + 14; l.p1.y = cy - 11;
+  l.p2.x = cx - 2;  l.p2.y = cy - 11;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx - 2;  l.p1.y = cy - 11;
+  l.p2.x = cx - 8;  l.p2.y = cy - 15;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx - 8;  l.p1.y = cy - 15;
+  l.p2.x = cx - 22; l.p2.y = cy - 13;
+  lv_draw_line(layer, &l);
+
+  l.p1.x = cx - 22; l.p1.y = cy - 13;
+  l.p2.x = cx - 26; l.p2.y = cy;
+  lv_draw_line(layer, &l);
+
+  l.width = 3;
+  l.p1.x = cx + 8;  l.p1.y = cy - 11;
+  l.p2.x = cx + 10; l.p2.y = cy - 26;
+  lv_draw_line(layer, &l);
+
+  l.width = 4;
+  l.p1.x = cx + 5;  l.p1.y = cy - 26;
+  l.p2.x = cx + 17; l.p2.y = cy - 26;
+  lv_draw_line(layer, &l);
+}
+
 static height_card_t create_height_card(lv_obj_t *parent, int32_t w, int32_t h) {
   height_card_t card = {0};
   card.card_w = w;
   card.card_h = h;
+  card.current_cm = 25;
+  card.target_cm = 25;
   card.root = create_panel(parent, w, h, lv_color_black());
-  if (card.root == NULL) {
-    return card;
+  if (card.root == NULL) return card;
+
+  lv_obj_set_style_clip_corner(card.root, true, 0);
+
+  int cw = 76;
+  int ch = h - 8;
+  int gap = 40;
+
+  lv_obj_t *wrapper = lv_obj_create(card.root);
+  lv_obj_remove_style_all(wrapper);
+  lv_obj_set_style_bg_opa(wrapper, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(wrapper, 0, 0);
+  lv_obj_set_style_pad_all(wrapper, 0, 0);
+  lv_obj_set_style_pad_column(wrapper, gap, 0);
+  lv_obj_set_flex_flow(wrapper, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(wrapper, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_width(wrapper, LV_SIZE_CONTENT);
+  lv_obj_set_height(wrapper, lv_pct(100));
+  lv_obj_add_flag(wrapper, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_align(wrapper, LV_ALIGN_CENTER, 0, 0);
+
+  card.canvas = lv_canvas_create(wrapper);
+  if (card.canvas != NULL) {
+    lv_obj_remove_style_all(card.canvas);
+    lv_obj_set_size(card.canvas, cw, ch);
+    const uint32_t stride = lv_draw_buf_width_to_stride(cw, LV_COLOR_FORMAT_RGB565);
+    const uint32_t buf_size = stride * ch;
+    card.draw_buf_mem = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (card.draw_buf_mem == NULL) {
+      card.draw_buf_mem = heap_caps_malloc(buf_size, MALLOC_CAP_8BIT);
+    }
+    if (card.draw_buf_mem != NULL) {
+      lv_canvas_set_buffer(card.canvas, card.draw_buf_mem, cw, ch, LV_COLOR_FORMAT_RGB565);
+    }
   }
 
-  card.top_label = add_simple_label(card.root, "50 cm", small_font,
-                                    lv_color_white(), (lv_opa_t)(255 * 0.56));
-  lv_obj_add_flag(card.top_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(card.top_label, LV_ALIGN_TOP_LEFT, 14, 12);
+  height_canvas_fill_background(&card);
 
-  card.bottom_label = add_simple_label(card.root, "0 cm", small_font,
-                                     lv_color_white(), (lv_opa_t)(255 * 0.56));
-  lv_obj_add_flag(card.bottom_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(card.bottom_label, LV_ALIGN_BOTTOM_LEFT, 14, -12);
+  const lv_font_t *cur_vf = get_sized_font(h / 5, 700);
+  const lv_font_t *cur_uf = get_sized_font(h / 16, 400);
+  const lv_font_t *tgt_vf = get_sized_font(h / 6, 700);
+  const lv_font_t *tgt_uf = get_sized_font(h / 18, 400);
+  const lv_font_t *cap_font = get_sized_font(h / 18, 400);
 
-  card.track = lv_obj_create(card.root);
-  lv_obj_remove_style_all(card.track);
-  lv_obj_add_flag(card.track, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_set_pos(card.track, HEIGHT_TRACK_X, HEIGHT_TRACK_Y);
-  lv_obj_set_size(card.track, HEIGHT_TRACK_W, HEIGHT_TRACK_H);
-  lv_obj_set_style_bg_color(card.track, lv_color_white(), 0);
-  lv_obj_set_style_bg_opa(card.track, (lv_opa_t)(255 * 0.25), 0);
-  lv_obj_set_style_radius(card.track, 0, 0);
+  lv_obj_t *label_col = lv_obj_create(wrapper);
+  lv_obj_remove_style_all(label_col);
+  lv_obj_set_style_bg_opa(label_col, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(label_col, 0, 0);
+  lv_obj_set_style_pad_all(label_col, 0, 0);
+  lv_obj_set_width(label_col, LV_SIZE_CONTENT);
+  lv_obj_set_height(label_col, lv_pct(100));
+  lv_obj_set_flex_flow(label_col, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(label_col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  card.target_marker = lv_obj_create(card.root);
-  lv_obj_remove_style_all(card.target_marker);
-  lv_obj_add_flag(card.target_marker, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_set_size(card.target_marker, 78, 8);
-  lv_obj_set_style_bg_color(card.target_marker, lv_color_hex(0xFFB000), 0);
-  lv_obj_set_style_bg_opa(card.target_marker, LV_OPA_COVER, 0);
-  lv_obj_set_style_radius(card.target_marker, 0, 0);
+  lv_obj_t *cur_row = lv_obj_create(label_col);
+  lv_obj_remove_style_all(cur_row);
+  lv_obj_set_size(cur_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(cur_row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_bg_opa(cur_row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(cur_row, 0, 0);
+  lv_obj_set_style_pad_all(cur_row, 0, 0);
 
-  card.current_marker = lv_obj_create(card.root);
-  lv_obj_remove_style_all(card.current_marker);
-  lv_obj_add_flag(card.current_marker, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_set_size(card.current_marker, 92, 8);
-  lv_obj_set_style_bg_color(card.current_marker, lv_color_white(), 0);
-  lv_obj_set_style_bg_opa(card.current_marker, (lv_opa_t)(255 * 0.92), 0);
-  lv_obj_set_style_radius(card.current_marker, 0, 0);
+  card.cur_value_label = add_simple_label(cur_row, "25", cur_vf,
+                                          lv_color_white(), LV_OPA_COVER);
+  card.cur_unit_label = add_simple_label(cur_row, "cm", cur_uf,
+                                          lv_color_white(), (lv_opa_t)(255 * 0.70));
+  lv_obj_set_style_translate_y(card.cur_unit_label,
+                               get_baseline_offset(cur_vf, cur_uf), 0);
 
-  lv_obj_t *value_box = lv_obj_create(card.root);
-  lv_obj_remove_style_all(value_box);
-  lv_obj_set_size(value_box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_all(value_box, 0, 0);
-  lv_obj_set_style_bg_opa(value_box, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_opa(value_box, LV_OPA_TRANSP, 0);
-  lv_obj_set_flex_flow(value_box, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(value_box, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
-  lv_obj_add_flag(value_box, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-  lv_obj_add_flag(value_box, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(value_box, LV_ALIGN_RIGHT_MID, -18, -4);
+  card.cur_caption_label = add_simple_label(label_col, "CURRENT", cap_font,
+                                            lv_color_white(), (lv_opa_t)(255 * 0.55));
+  lv_obj_set_style_pad_bottom(card.cur_caption_label, 4, 0);
 
-  card.current_label = add_simple_label(value_box, "25", height_value_font,
-                                        lv_color_white(), LV_OPA_COVER);
-  lv_obj_t *unit = add_simple_label(value_box, "cm", small_font,
-                                    lv_color_white(), LV_OPA_COVER);
-  lv_obj_set_style_translate_y(unit,
-                               get_baseline_offset(height_value_font, small_font), 0);
+  lv_obj_t *tgt_row = lv_obj_create(label_col);
+  lv_obj_remove_style_all(tgt_row);
+  lv_obj_set_size(tgt_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(tgt_row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_bg_opa(tgt_row, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(tgt_row, 0, 0);
+  lv_obj_set_style_pad_all(tgt_row, 0, 0);
 
-  card.target_label = add_simple_label(card.root, "target 30", small_font,
-                                     lv_color_hex(0xFFB000), LV_OPA_COVER);
-  lv_obj_add_flag(card.target_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(card.target_label, LV_ALIGN_RIGHT_MID, -18, 44);
+  card.tgt_value_label = add_simple_label(tgt_row, "25", tgt_vf,
+                                           lv_color_hex(0xFFB000), LV_OPA_COVER);
+  card.tgt_unit_label = add_simple_label(tgt_row, "cm", tgt_uf,
+                                          lv_color_hex(0xFFB000), (lv_opa_t)(255 * 0.70));
+  lv_obj_set_style_translate_y(card.tgt_unit_label,
+                               get_baseline_offset(tgt_vf, tgt_uf), 0);
+
+  card.tgt_caption_label = add_simple_label(label_col, "TARGET", cap_font,
+                                             lv_color_hex(0xFFB000), (lv_opa_t)(255 * 0.55));
 
   add_title(card.root, "HEIGHT");
   return card;
@@ -697,27 +921,27 @@ static height_card_t create_height_card(lv_obj_t *parent, int32_t w, int32_t h) 
 
 static void height_card_set_val(height_card_t *card, int current_cm,
                                 int target_cm, int max_cm) {
-  if (card == NULL || card->root == NULL || max_cm <= 0) {
-    return;
-  }
+  if (card == NULL || card->root == NULL || max_cm <= 0) return;
 
-  current_cm = clamp_i32(current_cm, HEIGHT_MIN_CM, max_cm);
-  target_cm = clamp_i32(target_cm, HEIGHT_MIN_CM, max_cm);
+  current_cm = clamp_i32(current_cm, 0, max_cm);
+  target_cm = clamp_i32(target_cm, 0, max_cm);
+  card->current_cm = current_cm;
+  card->target_cm = target_cm;
 
   char txt[16];
   snprintf(txt, sizeof(txt), "%d", current_cm);
-  lv_label_set_text(card->current_label, txt);
+  lv_label_set_text(card->cur_value_label, txt);
 
-  snprintf(txt, sizeof(txt), "target %d", target_cm);
-  lv_label_set_text(card->target_label, txt);
+  snprintf(txt, sizeof(txt), "%d", target_cm);
+  lv_label_set_text(card->tgt_value_label, txt);
 
-  const int32_t current_y =
-      HEIGHT_TRACK_Y + HEIGHT_TRACK_H - ((current_cm * HEIGHT_TRACK_H) / max_cm) - 4;
-  const int32_t target_y =
-      HEIGHT_TRACK_Y + HEIGHT_TRACK_H - ((target_cm * HEIGHT_TRACK_H) / max_cm) - 4;
-
-  lv_obj_set_pos(card->current_marker, HEIGHT_TRACK_X - 24, current_y);
-  lv_obj_set_pos(card->target_marker, HEIGHT_TRACK_X - 14, target_y);
+  if (card->canvas != NULL && card->draw_buf_mem != NULL) {
+    height_canvas_fill_background(card);
+    lv_layer_t layer;
+    lv_canvas_init_layer(card->canvas, &layer);
+    height_canvas_draw_overlay(card, &layer);
+    lv_canvas_finish_layer(card->canvas, &layer);
+  }
 }
 
 static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t h) {
@@ -761,18 +985,20 @@ static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t
     card.pitch_marks[i] = create_pitch_label(card.root, txt);
   }
 
-  card.heading_label = add_simple_label(card.root, "YAW 000", control_font,
-                                    lv_color_white(), (lv_opa_t)(255 * 0.88));
+  const lv_font_t *att_font = get_sized_font(h / 18, 400);
+  card.heading_label = add_simple_label(card.root, "YAW 000", att_font,
+                                     lv_color_white(), (lv_opa_t)(255 * 0.88));
   lv_obj_add_flag(card.heading_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.heading_label, LV_ALIGN_TOP_MID, 0, 6);
 
-  card.roll_label = add_simple_label(card.root, "ROLL +0.0 deg", control_font,
-                                     lv_color_white(), (lv_opa_t)(255 * 0.90));
+  const lv_font_t *att_small = get_sized_font(h / 18, 400);
+  card.roll_label = add_simple_label(card.root, "ROLL +0.0 deg", att_small,
+                                      lv_color_white(), (lv_opa_t)(255 * 0.90));
   lv_obj_add_flag(card.roll_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.roll_label, LV_ALIGN_BOTTOM_LEFT, 8, -6);
 
-  card.pitch_label = add_simple_label(card.root, "PITCH +0.0 deg", control_font,
-                                      lv_color_white(), (lv_opa_t)(255 * 0.90));
+  card.pitch_label = add_simple_label(card.root, "PITCH +0.0 deg", att_small,
+                                       lv_color_white(), (lv_opa_t)(255 * 0.90));
   lv_obj_add_flag(card.pitch_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.pitch_label, LV_ALIGN_BOTTOM_RIGHT, -8, -6);
 
@@ -862,14 +1088,16 @@ static battery_card_t create_battery_card(lv_obj_t *parent, int32_t w, int32_t h
   }
 
   lv_obj_t *metrics_box = create_metrics_box(card.root);
-  card.percent_label = add_simple_label(metrics_box, "50%", percent_font,
-                                      lv_color_hex(0xFFD23F), LV_OPA_COVER);
-  card.voltage_label = add_simple_label(metrics_box, "36V", control_font,
-                                      lv_color_white(), LV_OPA_COVER);
-  card.current_label = add_simple_label(metrics_box, "50A", control_font,
-                                      lv_color_white(), LV_OPA_COVER);
-  card.temp_label = add_simple_label(metrics_box, "50C", control_font,
-                                    lv_color_hex(0xFF5A52), LV_OPA_COVER);
+  const lv_font_t *bat_pct_font = get_sized_font(h / 4, 700);
+  card.percent_label = add_simple_label(metrics_box, "50%", bat_pct_font,
+                                       lv_color_hex(0xFFD23F), LV_OPA_COVER);
+  const lv_font_t *bat_dtl_font = get_sized_font(h / 7, 400);
+  card.voltage_label = add_simple_label(metrics_box, "36V", bat_dtl_font,
+                                       lv_color_white(), LV_OPA_COVER);
+  card.current_label = add_simple_label(metrics_box, "50A", bat_dtl_font,
+                                       lv_color_white(), LV_OPA_COVER);
+  card.temp_label = add_simple_label(metrics_box, "50C", bat_dtl_font,
+                                     lv_color_hex(0xFF5A52), LV_OPA_COVER);
 
   add_title(card.root, "BATTERY");
   return card;
@@ -922,14 +1150,16 @@ static motor_card_t create_motor_card(lv_obj_t *parent, int32_t w, int32_t h) {
   }
 
   lv_obj_t *metrics_box = create_metrics_box(card.root);
-  card.percent_label = add_simple_label(metrics_box, "50%", percent_font,
-                                      lv_color_white(), LV_OPA_COVER);
-  card.power_label = add_simple_label(metrics_box, "10.0 kW", control_font,
-                                    lv_color_white(), LV_OPA_COVER);
-  card.rpm_label = add_simple_label(metrics_box, "5000 RPM", control_font,
-                                  lv_color_white(), LV_OPA_COVER);
-  card.temp_label = add_simple_label(metrics_box, "50C", control_font,
-                                    lv_color_hex(0x1390FF), LV_OPA_COVER);
+  const lv_font_t *mot_pct_font = get_sized_font(h / 4, 700);
+  card.percent_label = add_simple_label(metrics_box, "50%", mot_pct_font,
+                                       lv_color_white(), LV_OPA_COVER);
+  const lv_font_t *mot_dtl_font = get_sized_font(h / 7, 400);
+  card.power_label = add_simple_label(metrics_box, "10.0 kW", mot_dtl_font,
+                                     lv_color_white(), LV_OPA_COVER);
+  card.rpm_label = add_simple_label(metrics_box, "5000 RPM", mot_dtl_font,
+                                   lv_color_white(), LV_OPA_COVER);
+  card.temp_label = add_simple_label(metrics_box, "50C", mot_dtl_font,
+                                     lv_color_hex(0x1390FF), LV_OPA_COVER);
 
   add_title(card.root, "MOTOR");
   return card;
@@ -968,6 +1198,7 @@ static control_surface_card_t create_control_surface_card(
   control_surface_card_t card = {0};
   card.card_w = w;
   card.card_h = h;
+  card.vertical = vertical;
   card.root = create_panel(parent, w, h, lv_color_black());
   if (card.root == NULL) {
     return card;
@@ -975,46 +1206,59 @@ static control_surface_card_t create_control_surface_card(
 
   add_title(card.root, title);
 
+  const int top_margin = 30;
+  const int bottom_margin = 28;
+  const int bar_area_h = h - top_margin - bottom_margin;
+
   if (vertical) {
-    card.bar = create_bar(card.root, 18, 72, LV_BAR_MODE_SYMMETRICAL,
+    const int bar_w = (w > 40) ? w / 5 : 8;
+    const int bar_h = (bar_area_h > 20) ? bar_area_h : 20;
+    card.bar = create_bar(card.root, bar_w, bar_h, LV_BAR_MODE_SYMMETRICAL,
                           LV_BAR_ORIENTATION_VERTICAL, -15, 15,
                           lv_color_white(), (lv_opa_t)(255 * 0.92));
     if (card.bar != NULL) {
       lv_bar_set_value(card.bar, 0, LV_ANIM_OFF);
       lv_obj_add_flag(card.bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
-      lv_obj_set_pos(card.bar, (w - 18) / 2, 24);
+      lv_obj_set_pos(card.bar, (w - bar_w) / 2, top_margin);
     }
 
+    const int zm_w = (w > 50) ? w / 3 : 16;
+    const int zm_h = 6;
     card.zero_mark = lv_obj_create(card.root);
     lv_obj_remove_style_all(card.zero_mark);
     lv_obj_add_flag(card.zero_mark, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_pos(card.zero_mark, (w - 28) / 2, 60);
-    lv_obj_set_size(card.zero_mark, 28, 6);
+    lv_obj_set_pos(card.zero_mark, (w - zm_w) / 2, top_margin + bar_h / 2 - zm_h / 2);
+    lv_obj_set_size(card.zero_mark, zm_w, zm_h);
     lv_obj_set_style_bg_color(card.zero_mark, lv_color_hex(0x808080), 0);
     lv_obj_set_style_bg_opa(card.zero_mark, (lv_opa_t)(255 * 0.65), 0);
   } else {
-    card.bar = create_bar(card.root, 84, 20, LV_BAR_MODE_SYMMETRICAL,
+    const int bar_w = (w > 60) ? w * 2 / 3 : 40;
+    const int bar_h = (h > 30) ? h / 5 : 8;
+    card.bar = create_bar(card.root, bar_w, bar_h, LV_BAR_MODE_SYMMETRICAL,
                           LV_BAR_ORIENTATION_HORIZONTAL, -20, 20,
                           lv_color_white(), (lv_opa_t)(255 * 0.95));
     if (card.bar != NULL) {
       lv_bar_set_value(card.bar, 0, LV_ANIM_OFF);
       lv_obj_add_flag(card.bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
-      lv_obj_set_pos(card.bar, (w - 84) / 2, 56);
+      lv_obj_set_pos(card.bar, (w - bar_w) / 2, top_margin + bar_area_h / 2 - bar_h / 2);
     }
 
+    const int zm_w = 6;
+    const int zm_h = (h > 40) ? h / 3 : 16;
     card.zero_mark = lv_obj_create(card.root);
     lv_obj_remove_style_all(card.zero_mark);
     lv_obj_add_flag(card.zero_mark, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_pos(card.zero_mark, (w - 6) / 2, 56 - 4);
-    lv_obj_set_size(card.zero_mark, 6, 28);
+    lv_obj_set_pos(card.zero_mark, (w - zm_w) / 2, top_margin + bar_area_h / 2 - zm_h / 2);
+    lv_obj_set_size(card.zero_mark, zm_w, zm_h);
     lv_obj_set_style_bg_color(card.zero_mark, lv_color_hex(0x808080), 0);
     lv_obj_set_style_bg_opa(card.zero_mark, (lv_opa_t)(255 * 0.65), 0);
   }
 
-  card.value_label = add_simple_label(card.root, "0 deg", control_font,
-                                      lv_color_white(), LV_OPA_COVER);
+  const lv_font_t *vf = get_sized_font(h / 9, 700);
+  card.value_label = add_simple_label(card.root, "0 deg", vf,
+                                       lv_color_white(), LV_OPA_COVER);
   lv_obj_add_flag(card.value_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
-  lv_obj_align(card.value_label, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_align(card.value_label, LV_ALIGN_BOTTOM_MID, 0, -6);
   return card;
 }
 

@@ -159,6 +159,14 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     with_lock(paint_pot);
     break;
   }
+  case CAN_ID_GPS_POSITION: {
+    can_gps_position_t gp;
+    memcpy(&gp, buffer, sizeof(gp));
+    char gps_buf[48];
+    snprintf(gps_buf, sizeof(gps_buf), "lat=%.4f lon=%.4f", (double)gp.lat_deg, (double)gp.lon_deg);
+    status_ui_update("CAN_GPS", "%s", gps_buf);
+    break;
+  }
   case CAN_ID_CTRL_STATUS: {
     can_ctrl_status_t cs;
     memcpy(&cs, buffer, sizeof(cs));
