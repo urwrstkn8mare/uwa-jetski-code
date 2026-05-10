@@ -106,7 +106,7 @@ static demo_ctx_t s_demo_ctx;
 static void demo_status_timer_cb(lv_timer_t *timer) {
   (void)timer;
   const int hz = (CONFIG_TAB5_DASHBOARD_DEMO_HZ > 0) ? CONFIG_TAB5_DASHBOARD_DEMO_HZ : 1;
-  status_ui_update("Demo", "DEMO %dHz", hz);
+  status_ui_update("Demo", "%dHz", hz);
 }
 
 static void demo_timer_cb(lv_timer_t *timer) {
@@ -212,7 +212,7 @@ void app_main(void) {
   esp_err_t can_err = dashboard_can_start();
   if (can_err != ESP_OK) {
     ESP_LOGW(TAG, "CAN start failed: %s (UI will stay up)", esp_err_to_name(can_err));
-    status_ui_update("CAN", "CAN off (TWAI down)");
+    status_ui_update("CAN", "off (TWAI down)");
   }
 #endif
 

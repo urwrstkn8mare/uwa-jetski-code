@@ -49,7 +49,7 @@ static void pot_tx_task(void *arg) {
           loop++;
           if ((loop % 20u) == 0u) {
             ESP_LOGI(TAG, "POT %u%% raw=%d CAN tx=%s", (unsigned)pct, raw, tx_err == ESP_OK ? "ok" : "drop");
-            status_ui_update("Rudder POT", "Pot %u%% raw %d [%d..%d]",
+            status_ui_update("Rudder POT", "%u%% raw %d [%d..%d]",
                              (unsigned)pct, raw, CONFIG_POT_ADC_RAW_MIN, CONFIG_POT_ADC_RAW_MAX);
           }
         }

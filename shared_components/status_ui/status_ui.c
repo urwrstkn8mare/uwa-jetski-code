@@ -161,10 +161,23 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
     lv_obj_t *lbl = lv_label_create(s_status_ui.container);
     lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
     lv_obj_set_style_text_opa(lbl, LV_OPA_COVER, 0);
+    lv_label_set_recolor(lbl, true);
     s_status_ui.entries[idx].label = lbl;
     s_status_ui.entry_count++;
   }
-  lv_label_set_text(s_status_ui.entries[idx].label, s_status_ui.scratch);
+
+  char *text = s_status_ui.entries[idx].text;
+  char tag_copy[TAG_LEN];
+  memcpy(tag_copy, s_status_ui.entries[idx].tag, TAG_LEN);
+  int written = snprintf(text, TEXT_CAP, "#00E5FF %s# %s", tag_copy, s_status_ui.scratch);
+  if (written < 0) {
+    written = 0;
+  }
+  if ((size_t)written >= TEXT_CAP) {
+    text[TEXT_CAP - 1] = '\0';
+  }
+
+  lv_label_set_text(s_status_ui.entries[idx].label, text);
   s_status_ui.entries[idx].last_update_us = now;
 
   if (s_status_ui.unlock_cb) {

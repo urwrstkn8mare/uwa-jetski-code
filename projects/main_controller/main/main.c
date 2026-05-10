@@ -45,15 +45,16 @@ static void main_status_display_init(void) {
   }
   app_state_set_display(true);
 
+  lv_obj_t *scr = NULL;
   if (tdisplays3_display_lock(200)) {
-    lv_obj_t *scr = lv_screen_active();
+    scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
     tdisplays3_display_unlock();
   }
 
   const status_ui_cfg_t cfg = {
-      .parent = lv_screen_active(),
+      .parent = scr,
       .lock_cb = main_status_lock,
       .unlock_cb = main_status_unlock,
       .min_interval_ms = 200,
@@ -115,7 +116,7 @@ static void task_loop(void *arg) {
         status_ui_update("CAN", "%s", buf);
       }
     } else {
-      status_ui_update("CAN", "CAN off (TWAI down)");
+      status_ui_update("CAN", "off (TWAI down)");
     }
 
     {
@@ -129,7 +130,7 @@ static void task_loop(void *arg) {
     uint16_t pot = 50;
     bool pot_fresh = app_state_pot_fresh(500, &pot);
     status_ui_update("Rudder",
-                     "Rudder: %s %u%%",
+                     "%s %u%%",
                      pot_fresh ? "CAN" : "DEMO", (unsigned)pot);
 
     vTaskDelay(pdMS_TO_TICKS(kTaskPeriodMs));

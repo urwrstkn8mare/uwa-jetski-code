@@ -65,7 +65,7 @@ static void aux_task_loop(void *arg) {
         status_ui_update("CAN", "%s", buf);
       }
     } else {
-      status_ui_update("CAN", "CAN off (TWAI down)");
+      status_ui_update("CAN", "off (TWAI down)");
     }
     vTaskDelay(pdMS_TO_TICKS(200));
   }
