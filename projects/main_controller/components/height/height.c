@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "status_ui.h"
 
@@ -23,6 +24,7 @@ static SemaphoreHandle_t s_mutex;
 static int32_t s_height_cm = 0;
 static bool s_initialized = false;
 static bool s_init_failed = false;
+static bool s_simulated = false;
 static volatile bool s_height_task_alive;
 
 static void height_task(void *pvParameters) {
@@ -37,10 +39,11 @@ static void height_task(void *pvParameters) {
                                  CONFIG_HEIGHT_UART_TX_GPIO,
                                  A02YYUW_PIN_SELECT_PROCESSED);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "a02yyuw_init failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "a02yyuw_init failed: %s — entering simulated mode", esp_err_to_name(ret));
         s_height_task_alive = false;
-        s_init_failed = true;
-        status_ui_update("Height", "off (init failed)");
+        s_simulated = true;
+        s_initialized = true;
+        status_ui_update("Height", "SIM 30 cm");
         vTaskDelete(NULL);
         return;
     }
@@ -55,10 +58,12 @@ static void height_task(void *pvParameters) {
     };
     ret = uart_param_config(CONFIG_HEIGHT_UART_PORT, &uart_config);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "uart_param_config failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "uart_param_config failed: %s — entering simulated mode", esp_err_to_name(ret));
         (void)a02yyuw_deinit(&dev);
         s_height_task_alive = false;
-        s_init_failed = true;
+        s_simulated = true;
+        s_initialized = true;
+        status_ui_update("Height", "SIM 30 cm");
         vTaskDelete(NULL);
         return;
     }
@@ -82,12 +87,12 @@ static void height_task(void *pvParameters) {
     }
 
     if (!seen_valid) {
-        ESP_LOGW(TAG, "Ultrasonic offline / no replies — freeing UART%d (disconnect is OK)",
-                 CONFIG_HEIGHT_UART_PORT);
+        ESP_LOGW(TAG, "Ultrasonic offline / no replies — entering simulated mode");
         (void)a02yyuw_deinit(&dev);
         s_height_task_alive = false;
-        s_init_failed = true;
-        status_ui_update("Height", "off (ultrasonic N/C)");
+        s_simulated = true;
+        s_initialized = true;
+        status_ui_update("Height", "SIM 30 cm");
         vTaskDelete(NULL);
         return;
     }
@@ -122,8 +127,11 @@ static void height_task(void *pvParameters) {
 
 esp_err_t height_init(void) {
 #if CONFIG_HEIGHT_SKIP_HW
-    ESP_LOGW(TAG, "Height sensor disabled by Kconfig (CONFIG_HEIGHT_SKIP_HW)");
-    return ESP_FAIL;
+    ESP_LOGW(TAG, "Height sensor disabled by Kconfig — entering simulated mode");
+    s_simulated = true;
+    s_initialized = true;
+    status_ui_update("Height", "SIM 30 cm");
+    return ESP_OK;
 #endif
 
     static bool mutex_ready;
@@ -131,8 +139,11 @@ esp_err_t height_init(void) {
     if (!mutex_ready) {
         s_mutex = xSemaphoreCreateMutex();
         if (s_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create mutex");
-            return ESP_FAIL;
+            ESP_LOGE(TAG, "Failed to create mutex — entering simulated mode");
+            s_simulated = true;
+            s_initialized = true;
+            status_ui_update("Height", "SIM 30 cm");
+            return ESP_OK;
         }
         mutex_ready = true;
     }
@@ -145,8 +156,11 @@ esp_err_t height_init(void) {
         s_init_failed = false;
         BaseType_t r = xTaskCreate(height_task, "height_task", 4096, NULL, 1, NULL);
         if (r != pdPASS) {
-            ESP_LOGW(TAG, "height task create failed");
-            return ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "height task create failed — entering simulated mode");
+            s_simulated = true;
+            s_initialized = true;
+            status_ui_update("Height", "SIM 30 cm");
+            return ESP_OK;
         }
     }
 
@@ -156,15 +170,25 @@ esp_err_t height_init(void) {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         waited++;
     }
-    if (s_init_failed) {
-        ESP_LOGW(TAG, "Height skipped — ultrasonic not detected or UART error");
-        return ESP_FAIL;
+    if (s_simulated || s_init_failed) {
+        ESP_LOGW(TAG, "Height skipped — entering simulated mode");
+        s_simulated = true;
+        s_initialized = true;
+        status_ui_update("Height", "SIM 30 cm");
+        return ESP_OK;
     }
     if (!s_initialized) {
-        ESP_LOGW(TAG, "Height init timed out (sensor task unusually slow)");
-        return ESP_ERR_TIMEOUT;
+        ESP_LOGW(TAG, "Height init timed out — entering simulated mode");
+        s_simulated = true;
+        s_initialized = true;
+        status_ui_update("Height", "SIM 30 cm");
+        return ESP_OK;
     }
     return ESP_OK;
+}
+
+bool height_is_simulated(void) {
+    return s_simulated;
 }
 
 esp_err_t height_get_cm(int32_t *height_cm) {
@@ -173,6 +197,10 @@ esp_err_t height_get_cm(int32_t *height_cm) {
     }
     if (height_cm == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (s_simulated) {
+        *height_cm = 30;
+        return ESP_OK;
     }
     if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) {
         return ESP_FAIL;

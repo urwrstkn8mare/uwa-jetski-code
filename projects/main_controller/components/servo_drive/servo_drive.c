@@ -9,6 +9,7 @@
 
 static const char *TAG = "servo_pwm";
 static bool s_ready;
+static bool s_simulated;
 static uint32_t s_ch0_us = 1500;
 static uint32_t s_ch1_us = 1500;
 
@@ -30,10 +31,15 @@ static uint32_t pulse_us_to_duty(uint32_t pulse_us) {
 
 bool servo_drive_is_ready(void) { return s_ready; }
 
+bool servo_drive_is_simulated(void) { return s_simulated; }
+
 esp_err_t servo_drive_init(void) {
 #if CONFIG_SERVO_SKIP_HW
-  ESP_LOGW(TAG, "Servo PWM disabled by Kconfig (CONFIG_SERVO_SKIP_HW)");
-  return ESP_FAIL;
+  ESP_LOGW(TAG, "Servo PWM disabled by Kconfig — entering simulated mode");
+  s_simulated = true;
+  s_ready = true;
+  status_ui_update("Servo", "SIM %" PRIu32 " %" PRIu32, s_ch0_us, s_ch1_us);
+  return ESP_OK;
 #endif
 
   ledc_timer_config_t timer = {
@@ -44,7 +50,13 @@ esp_err_t servo_drive_init(void) {
       .clk_cfg = LEDC_AUTO_CLK,
   };
   esp_err_t e = ledc_timer_config(&timer);
-  ESP_RETURN_ON_ERROR(e, TAG, "timer config failed");
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "timer config failed (%s) — entering simulated mode", esp_err_to_name(e));
+    s_simulated = true;
+    s_ready = true;
+    status_ui_update("Servo", "SIM %" PRIu32 " %" PRIu32, s_ch0_us, s_ch1_us);
+    return ESP_OK;
+  }
 
   ledc_channel_config_t ch0 = {
       .gpio_num = CONFIG_SERVO1_GPIO,
@@ -56,7 +68,13 @@ esp_err_t servo_drive_init(void) {
       .hpoint = 0,
   };
   e = ledc_channel_config(&ch0);
-  ESP_RETURN_ON_ERROR(e, TAG, "ch0 config failed");
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "ch0 config failed (%s) — entering simulated mode", esp_err_to_name(e));
+    s_simulated = true;
+    s_ready = true;
+    status_ui_update("Servo", "SIM %" PRIu32 " %" PRIu32, s_ch0_us, s_ch1_us);
+    return ESP_OK;
+  }
 
   ledc_channel_config_t ch1 = {
       .gpio_num = CONFIG_SERVO2_GPIO,
@@ -68,31 +86,40 @@ esp_err_t servo_drive_init(void) {
       .hpoint = 0,
   };
   e = ledc_channel_config(&ch1);
-  ESP_RETURN_ON_ERROR(e, TAG, "ch1 config failed");
+  if (e != ESP_OK) {
+    ESP_LOGW(TAG, "ch1 config failed (%s) — entering simulated mode", esp_err_to_name(e));
+    s_simulated = true;
+    s_ready = true;
+    status_ui_update("Servo", "SIM %" PRIu32 " %" PRIu32, s_ch0_us, s_ch1_us);
+    return ESP_OK;
+  }
 
   s_ready = true;
-  status_ui_update("Servo", "S0:%" PRIu32 " S1:%" PRIu32, s_ch0_us, s_ch1_us);
+  status_ui_update("Servo", "%s %" PRIu32 " %" PRIu32, "HW", s_ch0_us, s_ch1_us);
   ESP_LOGI(TAG, "PWM servo outputs enabled: ch0->GPIO%d ch1->GPIO%d @ 50Hz",
            CONFIG_SERVO1_GPIO, CONFIG_SERVO2_GPIO);
   return ESP_OK;
 }
 
-void servo_drive_set_pct(uint16_t pot_pct_0_100) {
-  uint16_t pot = (pot_pct_0_100 > 100) ? 100 : pot_pct_0_100;
-  uint32_t p0 = clamp_pulse_us(1000u + (uint32_t)pot * 10u);
-  uint32_t p1 = clamp_pulse_us(3000u - p0);
-  s_ch0_us = p0;
-  s_ch1_us = p1;
+void servo_drive_set_channels(uint32_t ch0_us, uint32_t ch1_us) {
+  ch0_us = clamp_pulse_us(ch0_us);
+  ch1_us = clamp_pulse_us(ch1_us);
+  s_ch0_us = ch0_us;
+  s_ch1_us = ch1_us;
   if (!s_ready) {
     return;
   }
-  uint32_t d0 = pulse_us_to_duty(p0);
-  uint32_t d1 = pulse_us_to_duty(p1);
+  if (s_simulated) {
+    status_ui_update("Servo", "SIM %" PRIu32 " %" PRIu32, ch0_us, ch1_us);
+    return;
+  }
+  uint32_t d0 = pulse_us_to_duty(ch0_us);
+  uint32_t d1 = pulse_us_to_duty(ch1_us);
   (void)ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, d0);
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
   (void)ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, d1);
   (void)ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-  status_ui_update("Servo", "S0:%" PRIu32 " S1:%" PRIu32, p0, p1);
+  status_ui_update("Servo", "HW %" PRIu32 " %" PRIu32, ch0_us, ch1_us);
 }
 
 void servo_drive_get_commanded_deg(int16_t *deg_a, int16_t *deg_b) {

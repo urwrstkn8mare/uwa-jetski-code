@@ -1,0 +1,29 @@
+menu "WebUI Configuration"
+
+    config WEBUI_AP_SSID
+        string "WiFi AP SSID"
+        default "Jetski-Control"
+        help
+            SSID of the open WiFi access point.
+
+    config WEBUI_AP_CHANNEL
+        int "WiFi AP channel"
+        range 1 11
+        default 6
+        help
+            WiFi channel (1-11).
+
+    config WEBUI_AP_MAX_CONN
+        int "Max WiFi clients"
+        range 1 8
+        default 4
+        help
+            Maximum number of simultaneous WiFi clients.
+
+    config WEBUI_HTTP_PORT
+        int "HTTP server port"
+        default 80
+        help
+            Port for the HTTP configuration server.
+
+endmenu

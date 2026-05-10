@@ -36,11 +36,13 @@ typedef struct {
   float speed_knots;
   float heading_deg;
   uint16_t pot_pct;
+  int16_t height_target_cm;
   bool have_attitude;
   bool have_height;
   bool have_servo;
   bool have_gps_vel;
   bool have_pot;
+  bool have_ctrl;
 } can_rx_snapshot_t;
 
 static can_rx_snapshot_t s_rx_data;
@@ -63,7 +65,8 @@ static void paint_height(void) {
   if (!s_rx_data.have_height) {
     return;
   }
-  dashboard_ui_set_height((int32_t)s_rx_data.height_cm, 25);
+  int32_t target = s_rx_data.have_ctrl ? (int32_t)s_rx_data.height_target_cm : 25;
+  dashboard_ui_set_height((int32_t)s_rx_data.height_cm, target);
 }
 
 static void paint_servo(void) {
@@ -154,6 +157,18 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     s_rx_data.pot_pct = (pot.value > 100) ? 100 : pot.value;
     s_rx_data.have_pot = true;
     with_lock(paint_pot);
+    break;
+  }
+  case CAN_ID_CTRL_STATUS: {
+    can_ctrl_status_t cs;
+    memcpy(&cs, buffer, sizeof(cs));
+    s_rx_data.height_target_cm = cs.height_target_cm;
+    if (!s_rx_data.have_height) {
+      s_rx_data.height_cm = cs.height_current_cm;
+      s_rx_data.have_height = true;
+    }
+    s_rx_data.have_ctrl = true;
+    with_lock(paint_height);
     break;
   }
   default:

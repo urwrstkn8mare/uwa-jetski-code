@@ -1,33 +1,26 @@
 #include "app_state.h"
 #include "can.h"
 #include "can_ids.h"
+#include "config.h"
+#include "control.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "height.h"
 #include "imu.h"
-#include "status_ui.h"
 #include "servo_drive.h"
+#include "status_ui.h"
 #include "t_display_s3.h"
+#include "webui.h"
 
 #include "lvgl.h"
 
-#include <inttypes.h>
 #include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "main";
 
-enum { kTaskPeriodMs = 50 };
-enum { kWorkTaskPrio = 2 };
-
 static tdisplays3_handle_t s_tdisp_board;
-
-static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
-  (void)timestamp;
-  app_state_on_can_rx(buffer, header_id);
-}
 
 static void main_status_lock(void) { tdisplays3_display_lock(200); }
 
@@ -65,50 +58,82 @@ static void main_status_display_init(void) {
   ESP_LOGI(TAG, "Display debug label ready");
 }
 
-static void task_loop(void *arg) {
+/* ── CAN RX callback ── */
+static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
+  (void)timestamp;
+  app_state_on_can_rx(buffer, header_id);
+}
+
+/* ── 50 Hz orchestrator task ── */
+static void ctrl_task(void *arg) {
   (void)arg;
   for (;;) {
     app_state_t st;
     app_state_get(&st);
 
     uint16_t pot_pct = 50;
-    bool pot_from_can = app_state_pot_fresh(500, &pot_pct);
-    if (!pot_from_can) {
+    if (!app_state_pot_fresh(500, &pot_pct)) {
       pot_pct = 50;
     }
 
-    if (st.servo_ok && servo_drive_is_ready()) {
-      servo_drive_set_pct(pot_pct);
-      int16_t adeg, bdeg;
-      servo_drive_get_commanded_deg(&adeg, &bdeg);
-      can_servo_pos_t sp = {.channel_a_deg = adeg, .channel_b_deg = bdeg};
-      if (can_is_ready()) {
-        (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
-      }
+    /* Read sensors */
+    float pitch = 0, roll = 0, yaw = 0;
+    bool have_imu = false;
+    if (st.imu_ok) {
+      have_imu = (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK);
     }
 
+    int32_t height_cm = 30;
+    bool have_height = false;
+    if (height_get_cm(&height_cm) == ESP_OK) {
+      have_height = true;
+    }
+
+    /* Run control loop */
+    control_output_t ctrl_out;
+    control_update((int16_t)height_cm, pitch, roll, pot_pct, &ctrl_out);
+
+    /* Drive servos */
+    if (servo_drive_is_ready()) {
+      uint32_t ch0_us = 1500 + ctrl_out.elevon_left_deg * 25;
+      uint32_t ch1_us = 1500 + ctrl_out.elevon_right_deg * 25;
+      servo_drive_set_channels(ch0_us, ch1_us);
+    }
+
+    /* ── CAN TX ── */
     if (can_is_ready()) {
-      if (st.imu_ok) {
-        float pitch = 0, roll = 0, yaw = 0;
-        if (imu_get_pitch_roll_yaw(&pitch, &roll, &yaw) == ESP_OK) {
-          can_attitude_t att = {
-              .pitch_deg = (int16_t)lroundf(pitch),
-              .roll_deg = (int16_t)lroundf(roll),
-              .yaw_deg = (int16_t)lroundf(yaw),
-          };
-          (void)can_tx(CAN_ID_ATTITUDE, (const uint8_t *)&att, sizeof(att));
-        }
+      if (have_imu) {
+        can_attitude_t att = {
+            .pitch_deg = (int16_t)lroundf(pitch),
+            .roll_deg = (int16_t)lroundf(roll),
+            .yaw_deg = (int16_t)lroundf(yaw),
+        };
+        (void)can_tx(CAN_ID_ATTITUDE, (const uint8_t *)&att, sizeof(att));
       }
 
-      if (st.height_ok) {
-        int32_t hcm = -1;
-        if (height_get_cm(&hcm) == ESP_OK && hcm >= 0 && hcm <= (int32_t)UINT16_MAX) {
-          can_height_t hb = {.height_cm = (uint16_t)hcm};
+      if (have_height) {
+        if (height_cm >= 0 && height_cm <= (int32_t)UINT16_MAX) {
+          can_height_t hb = {.height_cm = (uint16_t)height_cm};
           (void)can_tx(CAN_ID_HEIGHT, (const uint8_t *)&hb, sizeof(hb));
         }
       }
+
+      int16_t adeg, bdeg;
+      servo_drive_get_commanded_deg(&adeg, &bdeg);
+      can_servo_pos_t sp = {.channel_a_deg = adeg, .channel_b_deg = bdeg};
+      (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
+
+      can_ctrl_status_t cs = {
+          .height_target_cm = control_get_target(),
+          .height_current_cm = (int16_t)height_cm,
+          .pitch_deg = (int8_t)lroundf(pitch),
+          .roll_deg = (int8_t)lroundf(roll),
+          .flags = ctrl_out.armed ? 1u : 0u,
+      };
+      (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
     }
 
+    /* ── status UI ── */
     if (can_is_ready()) {
       char buf[128];
       int n = can_snprintf_board_status(buf, sizeof(buf));
@@ -133,7 +158,13 @@ static void task_loop(void *arg) {
                      "%s %u%%",
                      pot_fresh ? "CAN" : "DEMO", (unsigned)pot);
 
-    vTaskDelay(pdMS_TO_TICKS(kTaskPeriodMs));
+    status_ui_update("Control",
+                     "%s target=%d ht=%ld L=%d R=%d",
+                     ctrl_out.armed ? "ARMED" : "STBY",
+                     control_get_target(), (long)height_cm,
+                     ctrl_out.elevon_left_deg, ctrl_out.elevon_right_deg);
+
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
@@ -141,20 +172,25 @@ void app_main(void) {
   app_state_init();
   main_status_display_init();
 
+  config_init();
+
+  control_config_t cfg;
+  config_load(&cfg);
+  control_init(&cfg);
+
   const bool servo_ok = (servo_drive_init() == ESP_OK);
   app_state_set_servo(servo_ok);
-  if (!servo_ok) {
-    ESP_LOGW(TAG, "servo init failed");
+  if (servo_drive_is_simulated()) {
+    ESP_LOGW(TAG, "Servo in simulated mode");
   }
 
-  if (xTaskCreate(task_loop, "io", 8192, NULL, kWorkTaskPrio, NULL) != pdPASS) {
-    ESP_LOGE(TAG, "io task create failed");
+  /* Initialise CAN and create the 50 Hz task */
+  if (can_init(on_can_rx) != ESP_OK) {
+    ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
 
-  const bool can_ok = (can_init(on_can_rx) == ESP_OK);
-  app_state_set_can(can_ok);
-  if (!can_ok) {
-    ESP_LOGW(TAG, "CAN off");
+  if (xTaskCreate(ctrl_task, "ctrl", 8192, NULL, 2, NULL) != pdPASS) {
+    ESP_LOGE(TAG, "ctrl task create failed");
   }
 
   const bool imu_ok = (imu_init() == ESP_OK);
@@ -165,7 +201,9 @@ void app_main(void) {
 
   const bool height_ok = (height_init() == ESP_OK);
   app_state_set_height(height_ok);
-  if (!height_ok) {
-    ESP_LOGW(TAG, "height sensor off — no height CAN");
+  if (height_is_simulated()) {
+    ESP_LOGW(TAG, "Height sensor in simulated mode");
   }
+
+  webui_start();
 }

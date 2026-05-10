@@ -12,6 +12,8 @@
 #define CAN_ID_GPS_POSITION  0x104u /* can_gps_position_t */
 #define CAN_ID_GPS_VELOCITY  0x105u /* can_gps_velocity_t */
 
+#define CAN_ID_CTRL_STATUS   0x106u /* can_ctrl_status_t */
+
 /* Packed frame structs for compile-time safety.
  * Use these instead of manual memcpy for CAN serialization. */
 
@@ -49,3 +51,12 @@ typedef struct __attribute__((packed)) {
     float course_deg;
 } can_gps_velocity_t;
 _Static_assert(sizeof(can_gps_velocity_t) == 8, "CAN GPS velocity frame must be 8 bytes");
+
+typedef struct __attribute__((packed)) {
+    int16_t height_target_cm;
+    int16_t height_current_cm;
+    int8_t  pitch_deg;
+    int8_t  roll_deg;
+    uint8_t flags;      /* bit 0: armed */
+} can_ctrl_status_t;
+_Static_assert(sizeof(can_ctrl_status_t) == 7, "CAN ctrl status frame must be 7 bytes");
