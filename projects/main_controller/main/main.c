@@ -18,7 +18,7 @@
 #include <math.h>
 #include <string.h>
 
-static const char *TAG = "main";
+static const auto TAG = "main";
 
 static tdisplays3_handle_t s_tdisp_board;
 

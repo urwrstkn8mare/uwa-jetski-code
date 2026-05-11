@@ -24,6 +24,9 @@ def main() -> None:
     )
     add_project_arg(parser)
     add_common_logging_arg(parser)
+    parser.add_argument(
+        "-c", "--clang", action="store_true", help="Build with clang in build.clang"
+    )
     args, idf_args = parser.parse_known_args()
 
     setup_logging(args.verbose)
@@ -35,13 +38,18 @@ def main() -> None:
         operation_name="build",
     )
 
-    has_error = False
-    for project_dir in projects:
-        code = run_idf_subcommand(project_dir, "build", idf_args)
-        has_error = has_error or code != 0
+    pre_args = []
+    if args.clang:
+        pre_args = ["-B", "build.clang", "-D", "IDF_TOOLCHAIN=clang"]
 
-    if has_error:
-        logging.error("One or more builds failed.")
+    errored = []
+    for project_dir in projects:
+        code = run_idf_subcommand(project_dir, "build", idf_args, pre_args=pre_args)
+        if code != 0:
+            errored.append(project_dir.name)
+
+    if len(errored) > 0:
+        logging.error(f"One or more builds failed: {', '.join(errored)}")
         raise SystemExit(1)
     logging.info("All builds completed successfully.")
 

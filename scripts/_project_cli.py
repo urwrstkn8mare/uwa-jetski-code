@@ -36,7 +36,9 @@ def _list_project_names(projects_dir: Path) -> list[str]:
     if not projects_dir.exists():
         return []
     return sorted(
-        p.name for p in projects_dir.iterdir() if p.is_dir() and (p / "CMakeLists.txt").exists()
+        p.name
+        for p in projects_dir.iterdir()
+        if p.is_dir() and (p / "CMakeLists.txt").exists()
     )
 
 
@@ -91,7 +93,9 @@ def resolve_project_paths(
 
     selected_names = _parse_project_flags(raw_project_values)
     if selected_names:
-        logger.info("Resolving projects from -p/--project: %s", ", ".join(selected_names))
+        logger.info(
+            "Resolving projects from -p/--project: %s", ", ".join(selected_names)
+        )
         invalid = [name for name in selected_names if name not in project_names]
         if invalid:
             raise SystemExit(
@@ -109,7 +113,9 @@ def resolve_project_paths(
             logger.info("No project specified at repo root. Using all projects.")
         elif ctx.cwd.parent == ctx.projects_dir and ctx.cwd.name in project_names:
             selected_names = [ctx.cwd.name]
-            logger.info("No project specified in project root. Using '%s'.", ctx.cwd.name)
+            logger.info(
+                "No project specified in project root. Using '%s'.", ctx.cwd.name
+            )
         else:
             raise SystemExit(
                 "Error: run from repo root, from a project root under ./projects, "
@@ -133,9 +139,15 @@ def ensure_idf_env() -> None:
     logger.debug("ESP-IDF environment detected.")
 
 
-def run_idf_subcommand(project_dir: Path, subcommand: str, extra_args: list[str]) -> int:
+def run_idf_subcommand(
+    project_dir: Path,
+    subcommand: str,
+    extra_args: list[str],
+    *,
+    pre_args: list[str] = [],
+) -> int:
     logger = logging.getLogger("project_cli")
-    command = ["idf.py", subcommand, *extra_args]
+    command = ["idf.py", *pre_args, subcommand, *extra_args]
     logger.info(
         "[%s] Running: %s",
         project_dir.name,

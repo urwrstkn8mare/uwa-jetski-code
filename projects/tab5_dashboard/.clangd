@@ -1,0 +1,15 @@
+CompileFlags:
+  CompilationDatabase: "build.clang"
+
+Index:
+  Background: Build
+
+InlayHints:
+  Designators: true
+
+Completion:
+  HeaderInsertion: IWYU
+
+Hover:
+  ShowAKA: true
+
