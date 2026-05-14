@@ -16,11 +16,11 @@ static uint32_t s_ch1_us = 1500;
 static int16_t pulse_to_deg(int32_t pulse_us) { return (int16_t)((pulse_us - 1500) / 25); }
 
 static uint32_t clamp_pulse_us(uint32_t us) {
-  if (us < 1000u) {
-    return 1000u;
+  if (us < 1300u) {
+    return 1300u;
   }
-  if (us > 2000u) {
-    return 2000u;
+  if (us > 1800u) {
+    return 1800u;
   }
   return us;
 }
