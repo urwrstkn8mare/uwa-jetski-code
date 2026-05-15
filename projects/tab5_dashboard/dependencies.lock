@@ -1,6 +1,6 @@
 dependencies:
   espressif/bmi270:
-    component_hash: 8a21084f8fbe4211f3b49356598e1a134b3190675cf119aef991ad81e6a8c0df
+    component_hash: 3fd6f386f39d82e659fcc8f00763e7fe0ea907e5c8afeaf4f928a0ed83dba44a
     dependencies:
     - name: idf
       require: private
@@ -12,7 +12,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.0.1
+    version: 1.0.1~1
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -49,7 +49,7 @@ dependencies:
     - esp32c61
     version: 2.0.1
   espressif/esp_codec_dev:
-    component_hash: 9293329ccb361f67c6e847ab8f693b2d9158b2e438eff583c28558c29cdf3dca
+    component_hash: 896c67360ae1f8dedaf8a53dfe48c015317fa455f061a5165307892296990028
     dependencies:
     - name: idf
       require: private
@@ -57,7 +57,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 1.5.9
+    version: 1.5.10
   espressif/esp_h264:
     component_hash: fa5daaebc8a304f0b79bc57e51aab43e0a03eabc2ba3865bff4063c56b5d4564
     dependencies:

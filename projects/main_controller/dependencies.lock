@@ -57,7 +57,7 @@ dependencies:
       type: service
     version: 9.5.0
   tdisplays3:
-    component_hash: f3ad62e0ecc49c097ab175d15b420ec751dc5881af74730cedc01bf4699509e0
+    component_hash: f5f58b741ad49076ff370339b34cfc52c7c799e062c56105f615661523c54453
     dependencies:
     - name: espressif/esp_lvgl_port
       version: ^2.6.2
@@ -70,7 +70,7 @@ dependencies:
       git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
       path: components/tdisplays3
       type: git
-    version: 49fe7936c1abee730f29ab6f446887c9b123c305
+    version: d9e47f1c6ed1733b342cad5150cb59f47861011f
   urwrstkn8mare/icm20948:
     component_hash: bf572f1ef9c4c02544f91284fc7e57ab9e12ee6f5d2b53f5f56f4d16d34bf4bb
     dependencies:
