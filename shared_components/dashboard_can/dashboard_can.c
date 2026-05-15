@@ -31,8 +31,8 @@ typedef struct {
   int16_t roll_deg;
   int16_t yaw_deg;
   int16_t height_cm;
-  int16_t servo_a_deg;
-  int16_t servo_b_deg;
+  float servo_a_deg;
+  float servo_b_deg;
   float speed_knots;
   float heading_deg;
   uint16_t pot_pct;
@@ -73,7 +73,8 @@ static void paint_servo(void) {
   if (!s_rx_data.have_servo) {
     return;
   }
-  dashboard_ui_set_elevons((int32_t)s_rx_data.servo_a_deg, (int32_t)s_rx_data.servo_b_deg);
+  dashboard_ui_set_elevons((int32_t)lroundf(s_rx_data.servo_a_deg),
+                           (int32_t)lroundf(s_rx_data.servo_b_deg));
 }
 
 static void paint_gps_vel(void) {

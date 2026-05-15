@@ -24,6 +24,23 @@ typedef struct {
     int16_t disarm_threshold_pct;
 } control_config_t;
 
+typedef struct {
+    float min_pw_us;
+    float zero_pw_us;
+    float max_pw_us;
+    float min_angle_deg;
+    float max_angle_deg;
+} servo_calibration_t;
+
+typedef struct {
+    servo_calibration_t channel[2];
+} servo_config_t;
+
+typedef struct {
+    control_config_t control;
+    servo_config_t servo;
+} app_config_t;
+
 #define CONTROL_DEFAULT_HEIGHT_KP  100
 #define CONTROL_DEFAULT_HEIGHT_KI  0
 #define CONTROL_DEFAULT_HEIGHT_KD  20
@@ -39,9 +56,17 @@ typedef struct {
 #define CONTROL_DEFAULT_ARM_THRESHOLD_PCT     50
 #define CONTROL_DEFAULT_DISARM_THRESHOLD_PCT  30
 
+#define SERVO_DEFAULT_MIN_PW_US      1300.0f
+#define SERVO_DEFAULT_ZERO_PW_US     1500.0f
+#define SERVO_DEFAULT_MAX_PW_US      1800.0f
+#define SERVO_DEFAULT_MIN_ANGLE_DEG  (-8.0f)
+#define SERVO_DEFAULT_MAX_ANGLE_DEG  12.0f
+
 esp_err_t config_init(void);
 
-esp_err_t config_load(control_config_t *out);
-esp_err_t config_save(const control_config_t *cfg);
+esp_err_t config_load(app_config_t *out);
+esp_err_t config_save(const app_config_t *cfg);
 
 void config_get_defaults(control_config_t *out);
+void config_get_servo_defaults(servo_config_t *out);
+void config_get_app_defaults(app_config_t *out);

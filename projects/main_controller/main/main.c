@@ -58,6 +58,13 @@ static void main_status_display_init(void) {
   ESP_LOGI(TAG, "Display debug label ready");
 }
 
+/* ── Servo handles (created at startup) ── */
+static servo_channel_t s_servo_left;
+static servo_channel_t s_servo_right;
+
+static const int SERVO_GPIO_LEFT  = 1;
+static const int SERVO_GPIO_RIGHT = 2;
+
 /* ── CAN RX callback ── */
 static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
   (void)timestamp;
@@ -94,10 +101,17 @@ static void ctrl_task(void *arg) {
     control_update((int16_t)height_cm, pitch, roll, pot_pct, &ctrl_out);
 
     /* Drive servos */
-    if (servo_drive_is_ready()) {
-      uint32_t ch0_us = 1500 + ctrl_out.elevon_left_deg * 25;
-      uint32_t ch1_us = 1500 + ctrl_out.elevon_right_deg * 25;
-      servo_drive_set_channels(ch0_us, ch1_us);
+    if (servo_drive_any_cal_mode() && control_is_armed()) {
+      control_disarm();
+    }
+
+    if (!servo_drive_any_cal_mode()) {
+      if (s_servo_left != SERVO_CHANNEL_INVALID) {
+        servo_drive_set_degrees(s_servo_left, ctrl_out.elevon_left_deg);
+      }
+      if (s_servo_right != SERVO_CHANNEL_INVALID) {
+        servo_drive_set_degrees(s_servo_right, ctrl_out.elevon_right_deg);
+      }
     }
 
     /* ── CAN TX ── */
@@ -118,9 +132,17 @@ static void ctrl_task(void *arg) {
         }
       }
 
-      int16_t adeg, bdeg;
-      servo_drive_get_commanded_deg(&adeg, &bdeg);
-      can_servo_pos_t sp = {.channel_a_deg = adeg, .channel_b_deg = bdeg};
+      float ldeg = 0.0f, rdeg = 0.0f;
+      if (s_servo_left != SERVO_CHANNEL_INVALID) {
+        servo_drive_get_commanded_degrees(s_servo_left, &ldeg);
+      }
+      if (s_servo_right != SERVO_CHANNEL_INVALID) {
+        servo_drive_get_commanded_degrees(s_servo_right, &rdeg);
+      }
+      can_servo_pos_t sp = {
+          .channel_a_deg = ldeg,
+          .channel_b_deg = rdeg,
+      };
       (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
 
       can_ctrl_status_t cs = {
@@ -159,7 +181,7 @@ static void ctrl_task(void *arg) {
                      pot_fresh ? "CAN" : "DEMO", (unsigned)pot);
 
     status_ui_update("Control",
-                     "%s target=%d ht=%ld L=%d R=%d",
+                     "%s target=%d ht=%ld L=%.1f R=%.1f",
                      ctrl_out.armed ? "ARMED" : "STBY",
                      control_get_target(), (long)height_cm,
                      ctrl_out.elevon_left_deg, ctrl_out.elevon_right_deg);
@@ -174,20 +196,33 @@ void app_main(void) {
 
   config_init();
 
-  control_config_t cfg;
+  app_config_t cfg;
   config_load(&cfg);
-  control_init(&cfg);
-
-  const bool servo_ok = (servo_drive_init() == ESP_OK);
-  app_state_set_servo(servo_ok);
-  if (servo_drive_is_simulated()) {
-    ESP_LOGW(TAG, "Servo in simulated mode");
-  }
+  control_init(&cfg.control);
 
   /* Initialise CAN and create the 50 Hz task */
-  if (can_init(on_can_rx) != ESP_OK) {
-    ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
-  }
+    if (can_init(on_can_rx) != ESP_OK) {
+      ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
+    }
+
+    /* ── Servo hardware init and instance creation ── */
+    (void)servo_drive_init_hw();
+    s_servo_left  = servo_drive_open(SERVO_GPIO_LEFT);
+    s_servo_right = servo_drive_open(SERVO_GPIO_RIGHT);
+    app_state_set_servo(servo_drive_all_ready());
+
+    if (s_servo_left != SERVO_CHANNEL_INVALID) {
+      servo_drive_apply_cal(s_servo_left, &cfg.servo.channel[0]);
+    }
+    if (s_servo_right != SERVO_CHANNEL_INVALID) {
+      servo_drive_apply_cal(s_servo_right, &cfg.servo.channel[1]);
+    }
+    if (servo_drive_any_cal_mode()) {
+      ESP_LOGW(TAG, "cal mode active on open");
+    }
+    if (s_servo_left == SERVO_CHANNEL_INVALID && s_servo_right == SERVO_CHANNEL_INVALID) {
+      ESP_LOGW(TAG, "All servos in simulated mode");
+    }
 
   if (xTaskCreate(ctrl_task, "ctrl", 8192, NULL, 2, NULL) != pdPASS) {
     ESP_LOGE(TAG, "ctrl task create failed");

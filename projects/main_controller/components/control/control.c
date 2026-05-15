@@ -147,8 +147,8 @@ void control_update(int16_t height_cm,
 
     if (!s_armed) {
         if (out) {
-            out->elevon_left_deg = 0;
-            out->elevon_right_deg = 0;
+            out->elevon_left_deg = 0.0f;
+            out->elevon_right_deg = 0.0f;
             out->armed = false;
         }
         return;
@@ -198,8 +198,8 @@ void control_update(int16_t height_cm,
 
     if (out) {
         out->armed = true;
-        out->elevon_left_deg = (int16_t)(elevon_left);
-        out->elevon_right_deg = (int16_t)(elevon_right);
+        out->elevon_left_deg = elevon_left;
+        out->elevon_right_deg = elevon_right;
         out->height_pitch_target = (int16_t)(pitch_target * 10.0f);
         s_last_out = *out;
     }

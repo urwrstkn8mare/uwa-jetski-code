@@ -7,8 +7,8 @@
 #include "esp_err.h"
 
 typedef struct {
-    int16_t elevon_left_deg;       /* commanded angle for left elevon */
-    int16_t elevon_right_deg;      /* commanded angle for right elevon */
+    float   elevon_left_deg;       /* commanded angle for left elevon */
+    float   elevon_right_deg;      /* commanded angle for right elevon */
     int16_t height_pitch_target;   /* pitch target from height PID (deg*10) */
     bool    armed;
     float   dbg[6];                /* height_p, i, d — pitch_p, i, d */

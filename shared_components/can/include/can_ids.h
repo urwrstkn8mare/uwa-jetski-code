@@ -35,10 +35,10 @@ typedef struct __attribute__((packed)) {
 _Static_assert(sizeof(can_potentiometer_t) == 2, "CAN potentiometer frame must be 2 bytes");
 
 typedef struct __attribute__((packed)) {
-    int16_t channel_a_deg;
-    int16_t channel_b_deg;
+    float channel_a_deg;
+    float channel_b_deg;
 } can_servo_pos_t;
-_Static_assert(sizeof(can_servo_pos_t) == 4, "CAN servo pos frame must be 4 bytes");
+_Static_assert(sizeof(can_servo_pos_t) == 8, "CAN servo pos frame must be 8 bytes");
 
 typedef struct __attribute__((packed)) {
     float lat_deg;
