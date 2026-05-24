@@ -4,9 +4,6 @@ This is the code for both the new and old hydrfoil jetski at UWA.
 
 ## TODO
 
-- [ ] Create component for managing persistent configuration in main controller. Should be modifiable via a website hosted on the ESP32 accessable via soft AP. see if there are any exisiting libraries/components that can achieve this goal.
-- [ ] add some control loops!
-
 ## Directories explained
 
 - `shared_components`: Components shared across firmware projects. Each firmware’s top-level `CMakeLists.txt` adds this path with `list(APPEND EXTRA_COMPONENT_DIRS ".../shared_components")` so **`main`’s transitive `REQUIRES` (with `MINIMAL_BUILD`)** pulls only what’s needed—no symlink farm under `projects/*/components`.
