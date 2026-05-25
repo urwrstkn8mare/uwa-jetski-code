@@ -4,6 +4,12 @@ This is the code for both the new and old hydrfoil jetski at UWA.
 
 ## TODO
 
+- [ ] make status_ui auto horizontal scrolling when text exceeds width of displays.
+- [ ] impl CAN bulk data logging via the display projects (tab5 and ws_lcd). this would be to a SD card via a CSV file maybe (unless better alternative).
+- [ ] no more rudder componenet as rudder is now handled by a CAN-enabled encoder (dashboard and main controller should just read off CAN directly for this).
+- [ ] make aux controller take 2 potentiometers as inputs representing a joystick (a joystick compoennt). left and right should control bank (via elevons) and up and down should control pitch (via elevons as well). while this should essentially be disabled when control task takes over (i.e armed) there should a be an option via the webui to disable the height part of the control loop (so joystick would be used to control the pitch control loop.)
+- [ ] make all of 'our' components have consisent configuration exposure (i.e. in kconfig they should all be toplevel menu items starting with UWA Jetski - ...). <- this requires Kconfig.projbuild not just Kconfig.
+
 ## Directories explained
 
 - `shared_components`: Components shared across firmware projects. Each firmware’s top-level `CMakeLists.txt` adds this path with `list(APPEND EXTRA_COMPONENT_DIRS ".../shared_components")` so **`main`’s transitive `REQUIRES` (with `MINIMAL_BUILD`)** pulls only what’s needed—no symlink farm under `projects/*/components`.
