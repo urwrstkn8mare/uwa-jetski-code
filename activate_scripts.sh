@@ -18,6 +18,7 @@ alias clean='clean.py'
 alias monitor='monitor.py'
 alias flash='flash.py'
 alias save_defconfig='save_defconfig.py'
+alias setup_clangd='setup_clangd.py'
 
 if [[ -f "$SCRIPT_DIR/_completions.sh" ]]; then
     # shellcheck source=/dev/null
@@ -26,4 +27,4 @@ if [[ -f "$SCRIPT_DIR/_completions.sh" ]]; then
 fi
 
 echo "$SCRIPT_DIR added to \$PATH"
-echo "Extension-less aliases created (build, choose_port, clean, monitor, flash, save_defconfig)"
+echo "Extension-less aliases created (build, choose_port, clean, monitor, flash, save_defconfig, setup_clangd)"

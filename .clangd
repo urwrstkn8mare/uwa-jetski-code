@@ -7,8 +7,5 @@ Index:
 InlayHints:
   Designators: true
 
-Completion:
-  HeaderInsertion: IWYU
-
 Hover:
   ShowAKA: true

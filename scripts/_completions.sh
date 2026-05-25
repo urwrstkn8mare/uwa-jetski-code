@@ -101,6 +101,7 @@ _uwa_register_completions() {
         flash flash.py
         monitor monitor.py
         choose_port choose_port.py
+        setup_clangd setup_clangd.py
     )
 
     if [[ -n "${BASH_VERSION:-}" ]]; then
