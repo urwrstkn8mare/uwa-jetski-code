@@ -47,3 +47,5 @@ bool servo_drive_all_ready(void);
 int servo_drive_get_count(void);
 
 bool servo_drive_get_info_by_index(int idx, servo_info_t *out_info);
+
+void servo_drive_register_change_cb(void (*cb)(int idx));

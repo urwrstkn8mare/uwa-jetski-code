@@ -23,6 +23,9 @@ void control_arm(void);
 void control_disarm(void);
 bool control_is_armed(void);
 
+void control_register_arm_cb(void (*cb)(void));
+void control_register_change_cb(void (*cb)(void));
+
 void control_set_target(int16_t height_cm);
 int16_t control_get_target(void);
 

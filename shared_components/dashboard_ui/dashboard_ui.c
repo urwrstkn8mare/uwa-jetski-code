@@ -129,6 +129,7 @@ typedef struct {
   int64_t last_update_us[kUiThrottleCount];
   dashboard_ui_lock_fn_t lock_cb;
   dashboard_ui_unlock_fn_t unlock_cb;
+  uint32_t lock_timeout_ms;
   font_get_cb_t font_get_cb;
   void *font_get_user_data;
   bool initialized;
@@ -1307,6 +1308,7 @@ esp_err_t dashboard_ui_init(const dashboard_ui_cfg_t *cfg) {
   /* Store lock callbacks */
   s_dashboard_ui.lock_cb = cfg->lock_cb;
   s_dashboard_ui.unlock_cb = cfg->unlock_cb;
+  s_dashboard_ui.lock_timeout_ms = cfg->lock_timeout_ms;
 
   /* Reset primitive throttles */
   for (size_t i = 0; i < (size_t)kUiThrottleCount; i++) {
@@ -1400,7 +1402,7 @@ void dashboard_ui_set_speed(int32_t speed_kmh) {
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   speed_card_set_val(&s_dashboard_ui.speed, speed_kmh, 100);
   if (s_dashboard_ui.unlock_cb) {
@@ -1416,7 +1418,7 @@ void dashboard_ui_set_height(int32_t height_cm, int32_t height_target_cm) {
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   height_card_set_val(&s_dashboard_ui.height, height_cm, height_target_cm, 50);
   if (s_dashboard_ui.unlock_cb) {
@@ -1432,7 +1434,7 @@ void dashboard_ui_set_attitude(int32_t roll_deg, int32_t pitch_deg, int32_t head
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   attitude_card_set_val(&s_dashboard_ui.attitude, roll_deg, pitch_deg, heading_deg);
   if (s_dashboard_ui.unlock_cb) {
@@ -1448,7 +1450,7 @@ void dashboard_ui_set_battery(int32_t percent, int32_t voltage_v, int32_t curren
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   battery_card_set_val(&s_dashboard_ui.battery, percent, voltage_v, current_a, temp_c);
   if (s_dashboard_ui.unlock_cb) {
@@ -1471,7 +1473,7 @@ void dashboard_ui_set_motor(int32_t index, int32_t percent, int32_t power_kw_x10
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   motor_card_set_val(&s_dashboard_ui.motors[index], percent, power_kw_x10, rpm, temp_c);
   if (s_dashboard_ui.unlock_cb) {
@@ -1487,7 +1489,7 @@ void dashboard_ui_set_rudder(int32_t rudder_deg) {
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   control_surface_card_set_val(&s_dashboard_ui.rudder, rudder_deg);
   if (s_dashboard_ui.unlock_cb) {
@@ -1503,7 +1505,7 @@ void dashboard_ui_set_elevons(int32_t left_deg, int32_t right_deg) {
     return;
   }
   if (s_dashboard_ui.lock_cb) {
-    s_dashboard_ui.lock_cb();
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
   }
   control_surface_card_set_val(&s_dashboard_ui.elevon_left, left_deg);
   control_surface_card_set_val(&s_dashboard_ui.elevon_right, right_deg);

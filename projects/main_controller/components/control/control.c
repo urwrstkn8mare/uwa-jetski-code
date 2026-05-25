@@ -1,6 +1,9 @@
 #include "control.h"
 
+#include "can.h"
+#include "can_ids.h"
 #include "esp_log.h"
+#include "status_ui.h"
 
 #include <math.h>
 #include <string.h>
@@ -25,6 +28,8 @@ static float s_roll_prev_error;
 static bool  s_roll_first;
 
 static control_output_t s_last_out;
+static void (*s_arm_cb)(void);
+static void (*s_change_cb)(void);
 
 static float apply_pid(float error, float kp, float ki, float kd,
                        float dt, float *integral, float *prev_error, bool *first) {
@@ -91,11 +96,21 @@ void control_get_cfg(control_config_t *cfg) {
     }
 }
 
+void control_register_arm_cb(void (*cb)(void)) {
+    s_arm_cb = cb;
+}
+
+void control_register_change_cb(void (*cb)(void)) {
+    s_change_cb = cb;
+}
+
 void control_arm(void) {
     if (!s_armed) {
         s_armed = true;
         reset_integrals();
         ESP_LOGI(TAG, "Armed");
+        if (s_arm_cb) s_arm_cb();
+        if (s_change_cb) s_change_cb();
     }
 }
 
@@ -105,6 +120,7 @@ void control_disarm(void) {
         reset_integrals();
         s_target_height_cm = 0;
         ESP_LOGI(TAG, "Disarmed");
+        if (s_change_cb) s_change_cb();
     }
 }
 
@@ -121,6 +137,8 @@ void control_set_target(int16_t height_cm) {
         control_arm();
     } else if (s_target_height_cm <= s_cfg.disarm_threshold_pct / 2 && s_armed) {
         control_disarm();
+    } else {
+        if (s_change_cb) s_change_cb();
     }
 }
 
@@ -203,4 +221,19 @@ void control_update(int16_t height_cm,
         out->height_pitch_target = (int16_t)(pitch_target * 10.0f);
         s_last_out = *out;
     }
+
+    can_ctrl_status_t cs = {
+        .height_target_cm  = s_target_height_cm,
+        .height_current_cm = height_cm,
+        .pitch_deg         = (int8_t)lroundf(pitch_deg),
+        .roll_deg          = (int8_t)lroundf(roll_deg),
+        .flags             = 1u,
+    };
+    (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
+
+    status_ui_update("Control", "%s target=%d ht=%d L=%.1f R=%.1f",
+                     "ARMED",
+                     (int)s_target_height_cm, (int)height_cm,
+                     (double)(out ? out->elevon_left_deg : 0.0f),
+                     (double)(out ? out->elevon_right_deg : 0.0f));
 }

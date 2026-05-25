@@ -86,10 +86,9 @@ fail:
   return ESP_FAIL;
 }
 
-esp_err_t ws_display_lock(int32_t timeout_ms) {
-  esp_err_t err = esp_lv_adapter_lock(timeout_ms);
-  if (err != ESP_OK) {
-    return err;
+bool ws_display_lock(uint32_t timeout_ms) {
+  if (esp_lv_adapter_lock((int32_t)timeout_ms) != ESP_OK) {
+    return false;
   }
 
   TaskHandle_t current = xTaskGetCurrentTaskHandle();
@@ -97,7 +96,7 @@ esp_err_t ws_display_lock(int32_t timeout_ms) {
     s_lock_owner = current;
   }
   s_lock_depth++;
-  return ESP_OK;
+  return true;
 }
 
 void ws_display_unlock(void) {

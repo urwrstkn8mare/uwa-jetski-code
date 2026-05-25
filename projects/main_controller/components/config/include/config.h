@@ -67,6 +67,9 @@ esp_err_t config_init(void);
 esp_err_t config_load(app_config_t *out);
 esp_err_t config_save(const app_config_t *cfg);
 
+esp_err_t config_save_servo_cal(int channel_idx, const servo_calibration_t *cal);
+esp_err_t config_save_control_cfg(const control_config_t *cfg);
+
 void config_get_defaults(control_config_t *out);
 void config_get_servo_defaults(servo_config_t *out);
 void config_get_app_defaults(app_config_t *out);

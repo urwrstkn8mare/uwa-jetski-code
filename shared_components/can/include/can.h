@@ -13,6 +13,10 @@
  */
 typedef void (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp);
 
+/** Optional callback invoked by the diag task with a one-line status string. */
+typedef void (*can_status_cb_t)(const char *line);
+void can_register_status_cb(can_status_cb_t cb);
+
 /**
  * @brief Initialise CAN (TWAI)
  *

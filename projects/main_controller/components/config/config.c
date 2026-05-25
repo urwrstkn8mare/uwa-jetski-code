@@ -197,6 +197,26 @@ esp_err_t config_save(const app_config_t *cfg) {
     return e;
 }
 
+esp_err_t config_save_servo_cal(int channel_idx, const servo_calibration_t *cal) {
+    if (channel_idx < 0 || channel_idx >= 2 || cal == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    app_config_t cfg;
+    esp_err_t e = config_load(&cfg);
+    if (e != ESP_OK) return e;
+    cfg.servo.channel[channel_idx] = *cal;
+    return config_save(&cfg);
+}
+
+esp_err_t config_save_control_cfg(const control_config_t *cfg) {
+    if (cfg == NULL) return ESP_ERR_INVALID_ARG;
+    app_config_t app;
+    esp_err_t e = config_load(&app);
+    if (e != ESP_OK) return e;
+    app.control = *cfg;
+    return config_save(&app);
+}
+
 void config_get_defaults(control_config_t *out) {
     if (out) {
         *out = s_control_defaults;

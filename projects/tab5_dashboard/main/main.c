@@ -79,10 +79,6 @@ static const lv_font_t *tab5_font_get_cb(uint16_t size_px, int weight, void *use
   return NULL;
 }
 
-static void tab5_status_lock(void) { bsp_display_lock(portMAX_DELAY); }
-
-static void tab5_status_unlock(void) { bsp_display_unlock(); }
-
 #if !CONFIG_TAB5_DASHBOARD_FEED_MODE_DEMO
 static esp_err_t tab5_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
@@ -160,8 +156,9 @@ void app_main(void) {
       .screen = dashboard_host,
       .font_get_cb = tab5_font_get_cb,
       .font_get_user_data = NULL,
-      .lock_cb = tab5_status_lock,
-      .unlock_cb = tab5_status_unlock,
+      .lock_cb = bsp_display_lock,
+      .unlock_cb = bsp_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
   };
   esp_err_t ui_err = dashboard_ui_init(&ui_cfg);
   if (ui_err != ESP_OK) {
@@ -186,8 +183,9 @@ void app_main(void) {
       .h = strip_h_px,
       .align = LV_ALIGN_BOTTOM_MID,
       .bg_opa = LV_OPA_COVER,
-      .lock_cb = tab5_status_lock,
-      .unlock_cb = tab5_status_unlock,
+      .lock_cb = bsp_display_lock,
+      .unlock_cb = bsp_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
       .min_interval_ms = 250,
   };
   ESP_ERROR_CHECK(status_ui_start(&cfg));
@@ -203,8 +201,9 @@ void app_main(void) {
       .h = strip_h_px,
       .align = LV_ALIGN_BOTTOM_MID,
       .bg_opa = LV_OPA_COVER,
-      .lock_cb = tab5_status_lock,
-      .unlock_cb = tab5_status_unlock,
+      .lock_cb = bsp_display_lock,
+      .unlock_cb = bsp_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
       .min_interval_ms = 250,
   };
   ESP_ERROR_CHECK(status_ui_start(&cfg));

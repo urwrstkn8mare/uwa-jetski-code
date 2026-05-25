@@ -14,8 +14,9 @@ typedef struct {
   int32_t h;
   lv_align_t align;
   lv_opa_t bg_opa;
-  void (*lock_cb)(void);
+  bool (*lock_cb)(uint32_t timeout_ms);
   void (*unlock_cb)(void);
+  uint32_t lock_timeout_ms;
   uint32_t min_interval_ms;
 } status_ui_cfg_t;
 

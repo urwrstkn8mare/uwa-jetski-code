@@ -1,5 +1,7 @@
 #include "servo_drive.h"
 
+#include "can.h"
+#include "can_ids.h"
 #include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -29,6 +31,7 @@ static servo_instance_t s_instances[SERVO_MAX_INSTANCES];
 static uint8_t s_ledc_channel_mask;
 static bool s_hw_initialized;
 static bool s_simulated;
+static void (*s_change_cb)(int idx);
 
 static uint32_t s_pwm_freq_hz;
 static uint32_t s_pwm_max_duty;
@@ -113,6 +116,12 @@ static void servo_drive_push_instance(int idx) {
 
     if (s_instances[idx].simulated) {
         servo_drive_update_status();
+        can_servo_pos_t sp = {
+            .channel = (uint8_t)idx,
+            .deg     = s_instances[idx].cmd_deg,
+        };
+        (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
+        if (s_change_cb) s_change_cb(idx);
         return;
     }
 
@@ -120,6 +129,12 @@ static void servo_drive_push_instance(int idx) {
     (void)ledc_set_duty(s_speed_mode, s_instances[idx].ledc_ch, duty);
     (void)ledc_update_duty(s_speed_mode, s_instances[idx].ledc_ch);
     servo_drive_update_status();
+    can_servo_pos_t sp = {
+        .channel = (uint8_t)idx,
+        .deg     = s_instances[idx].cmd_deg,
+    };
+    (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
+    if (s_change_cb) s_change_cb(idx);
 }
 
 esp_err_t servo_drive_init_hw(void) {
@@ -268,6 +283,7 @@ void servo_drive_set_cal_mode(servo_channel_t h, bool on) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
     s_instances[h].cal_mode = on;
     servo_drive_update_status();
+    if (s_change_cb) s_change_cb((int)h);
 }
 
 bool servo_drive_is_cal_mode(servo_channel_t h) {
@@ -323,4 +339,8 @@ bool servo_drive_get_info_by_index(int idx, servo_info_t *out_info) {
     out_info->cmd_deg = s_instances[idx].cmd_deg;
     out_info->cal = s_instances[idx].cal;
     return true;
+}
+
+void servo_drive_register_change_cb(void (*cb)(int idx)) {
+    s_change_cb = cb;
 }

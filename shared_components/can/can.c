@@ -16,6 +16,11 @@
 static const char *TAG = "can";
 
 static can_rx_cb_t s_given_can_rx_cb = NULL;
+static can_status_cb_t s_status_cb = NULL;
+
+void can_register_status_cb(can_status_cb_t cb) {
+  s_status_cb = cb;
+}
 static twai_node_handle_t s_node_hdl = NULL;
 
 /* ---------- Frame pool for safe asynchronous TX ----------
@@ -169,6 +174,11 @@ static void can_diag_task(void *arg) {
       char line[144];
       (void)can_snprintf_metrics_line(line, sizeof(line));
       ESP_LOGI(TAG, "%s", line);
+      if (s_status_cb) {
+        char board_line[144];
+        (void)can_snprintf_board_status(board_line, sizeof(board_line));
+        s_status_cb(board_line);
+      }
     }
     vTaskDelay(period);
   }

@@ -1,3 +1,3 @@
 idf_component_register(SRCS "control.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES config)
+                       REQUIRES can config status_ui)

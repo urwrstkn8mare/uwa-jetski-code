@@ -154,19 +154,6 @@ static void sse_notify_servo_change(int idx) {
     sse_push_state();
 }
 
-static void sse_notify_cal_mode(int idx) {
-    (void)idx;
-    sse_push_state();
-}
-
-static void sse_notify_armed(void) {
-    sse_push_state();
-}
-
-static void sse_notify_target(void) {
-    sse_push_state();
-}
-
 static void heartbeat_timer_cb(TimerHandle_t t) {
     (void)t;
     sse_send_comment("heartbeat");
@@ -302,21 +289,7 @@ static esp_err_t api_put_servo_calibration(httpd_req_t *req) {
     if (!any) return json_error_resp(req, "no calibration fields");
 
     servo_drive_apply_cal((servo_channel_t)handle, &cal);
-
-    app_config_t cfg;
-    config_load(&cfg);
-    int idx = 0;
-    int count = servo_drive_get_count();
-    for (int i = 0; i < SERVO_MAX_INSTANCES && idx < count; i++) {
-        servo_info_t info;
-        if (!servo_drive_get_info_by_index(i, &info)) continue;
-        if (!info.in_use) continue;
-        if (i == handle) {
-            cfg.servo.channel[idx] = cal;
-        }
-        idx++;
-    }
-    config_save(&cfg);
+    (void)config_save_servo_cal(handle, &cal);
 
     return json_ok_resp(req);
 }
@@ -347,7 +320,6 @@ static esp_err_t api_post_servo_cal_mode(httpd_req_t *req) {
         control_disarm();
     }
     servo_drive_set_cal_mode((servo_channel_t)handle, enabled);
-    sse_notify_cal_mode(handle);
 
     return json_ok_resp(req);
 }
@@ -419,7 +391,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     free(buf);
 
     control_set_cfg(&cfg.control);
-    config_save(&cfg);
+    (void)config_save_control_cfg(&cfg.control);
 
     return json_ok_resp(req);
 }
@@ -429,13 +401,11 @@ static esp_err_t api_arm(httpd_req_t *req) {
         return json_error_resp(req, "calibration active");
     }
     control_arm();
-    sse_notify_armed();
     return json_ok_resp(req);
 }
 
 static esp_err_t api_disarm(httpd_req_t *req) {
     control_disarm();
-    sse_notify_armed();
     return json_ok_resp(req);
 }
 
@@ -457,7 +427,6 @@ static esp_err_t api_set_target(httpd_req_t *req) {
     free(buf);
 
     control_set_target(h);
-    sse_notify_target();
 
     return json_ok_resp(req);
 }
@@ -575,6 +544,9 @@ esp_err_t webui_start(void) {
     memset(s_last_servo_push_us, 0, sizeof(s_last_servo_push_us));
     s_last_state_push_us = 0;
 
+    control_register_change_cb(sse_push_state);
+    servo_drive_register_change_cb(sse_notify_servo_change);
+
     ESP_RETURN_ON_ERROR(wifi_ap_init(), TAG, "WiFi AP init failed");
     ESP_RETURN_ON_ERROR(http_server_init(), TAG, "HTTP server init failed");
 
@@ -604,20 +576,4 @@ void webui_stop(void) {
         s_server = NULL;
     }
     esp_wifi_stop();
-}
-
-void webui_notify_servo_change(int handle) {
-    sse_notify_servo_change(handle);
-}
-
-void webui_notify_cal_mode_change(int handle) {
-    sse_notify_cal_mode(handle);
-}
-
-void webui_notify_armed(void) {
-    sse_notify_armed();
-}
-
-void webui_notify_target(void) {
-    sse_notify_target();
 }

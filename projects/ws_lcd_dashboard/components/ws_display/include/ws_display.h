@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -29,9 +30,9 @@ esp_err_t ws_display_init(void);
  *
  * Hold this lock before touching LVGL objects or creating fonts.
  *
- * @param timeout_ms Lock timeout in milliseconds, or -1 to wait forever.
+ * @param timeout_ms Lock timeout in milliseconds; pass portMAX_DELAY to wait forever.
  */
-esp_err_t ws_display_lock(int32_t timeout_ms);
+bool ws_display_lock(uint32_t timeout_ms);
 
 /**
  * @brief Release the display lock.

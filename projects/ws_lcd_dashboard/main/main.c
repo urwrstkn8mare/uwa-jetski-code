@@ -27,14 +27,11 @@ static const lv_font_t *ws_lcd_font_get_cb(uint16_t size_px, int weight, void *u
   return (err == ESP_OK) ? font : NULL;
 }
 
-static void ws_lcd_status_lock(void) { ws_display_lock(portMAX_DELAY); }
-
-static void ws_lcd_status_unlock(void) { ws_display_unlock(); }
-
 #if !CONFIG_WS_LCD_DASHBOARD_FEED_MODE_DEMO
 static esp_err_t ws_can_lock(int32_t timeout_ms, void *ctx) {
   (void)ctx;
-  return (ws_display_lock(timeout_ms) == ESP_OK) ? ESP_OK : ESP_FAIL;
+  const uint32_t t = (timeout_ms < 0) ? portMAX_DELAY : (uint32_t)timeout_ms;
+  return ws_display_lock(t) ? ESP_OK : ESP_FAIL;
 }
 
 static void ws_can_unlock(void *ctx) {
@@ -71,7 +68,10 @@ static void demo_timer_cb(lv_timer_t *timer) {
 void app_main(void) {
   ESP_ERROR_CHECK(ws_display_init());
 
-  ESP_ERROR_CHECK(ws_display_lock(-1));
+  if (!ws_display_lock(portMAX_DELAY)) {
+    ESP_LOGE(TAG, "Failed to lock display");
+    return;
+  }
 
   lv_obj_t *screen = lv_screen_active();
   lv_display_t *disp = lv_display_get_default();
@@ -97,8 +97,9 @@ void app_main(void) {
       .screen = dashboard_host,
       .font_get_cb = ws_lcd_font_get_cb,
       .font_get_user_data = NULL,
-      .lock_cb = ws_lcd_status_lock,
-      .unlock_cb = ws_lcd_status_unlock,
+      .lock_cb = ws_display_lock,
+      .unlock_cb = ws_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
   };
   esp_err_t ui_err = dashboard_ui_init(&ui_cfg);
   if (ui_err != ESP_OK) {
@@ -123,8 +124,9 @@ void app_main(void) {
       .h = strip_h_px,
       .align = LV_ALIGN_BOTTOM_MID,
       .bg_opa = LV_OPA_COVER,
-      .lock_cb = ws_lcd_status_lock,
-      .unlock_cb = ws_lcd_status_unlock,
+      .lock_cb = ws_display_lock,
+      .unlock_cb = ws_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
       .min_interval_ms = 250,
   };
   ESP_ERROR_CHECK(status_ui_start(&cfg));
@@ -140,8 +142,9 @@ void app_main(void) {
       .h = strip_h_px,
       .align = LV_ALIGN_BOTTOM_MID,
       .bg_opa = LV_OPA_COVER,
-      .lock_cb = ws_lcd_status_lock,
-      .unlock_cb = ws_lcd_status_unlock,
+      .lock_cb = ws_display_lock,
+      .unlock_cb = ws_display_unlock,
+      .lock_timeout_ms = portMAX_DELAY,
       .min_interval_ms = 250,
   };
   ESP_ERROR_CHECK(status_ui_start(&cfg));

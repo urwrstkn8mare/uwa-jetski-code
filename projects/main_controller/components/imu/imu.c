@@ -3,6 +3,8 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "can.h"
+#include "can_ids.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -130,6 +132,12 @@ static void imu_reader_task(void *arg) {
                     xSemaphoreGive(s_mutex);
                     status_ui_update("IMU", "P:%.1f R:%.1f Y:%.1f deg",
                                      (double)pitch, (double)roll, (double)yaw);
+                    can_attitude_t att = {
+                        .pitch_deg = (int16_t)lroundf(pitch),
+                        .roll_deg  = (int16_t)lroundf(roll),
+                        .yaw_deg   = (int16_t)lroundf(yaw),
+                    };
+                    (void)can_tx(CAN_ID_ATTITUDE, (const uint8_t *)&att, sizeof(att));
                 }
             }
         }
@@ -198,6 +206,10 @@ esp_err_t imu_init(void) {
 
     s_imu_initialized = true;
     return ESP_OK;
+}
+
+bool imu_is_ready(void) {
+    return s_imu_initialized;
 }
 
 esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {

@@ -34,7 +34,7 @@ typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *us
 
 /* Display lock callbacks: acquire and release the display lock before/after LVGL operations.
  * This ensures thread-safe access to LVGL objects. */
-typedef void (*dashboard_ui_lock_fn_t)(void);
+typedef bool (*dashboard_ui_lock_fn_t)(uint32_t timeout_ms);
 typedef void (*dashboard_ui_unlock_fn_t)(void);
 
 /** Configuration for dashboard_ui initialization.
@@ -45,6 +45,7 @@ typedef struct {
   void *font_get_user_data;              /**< User data for font callback (optional) */
   dashboard_ui_lock_fn_t lock_cb;        /**< Display lock acquire function (required) */
   dashboard_ui_unlock_fn_t unlock_cb;    /**< Display lock release function (required) */
+  uint32_t lock_timeout_ms;             /**< Timeout passed to lock_cb; 0 means portMAX_DELAY */
 } dashboard_ui_cfg_t;
 
 /* Initialize the singleton dashboard_ui instance.

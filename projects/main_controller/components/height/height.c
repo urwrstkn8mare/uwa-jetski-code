@@ -4,6 +4,8 @@
 #include <stdio.h>
 
 #include "a02yyuw.h"
+#include "can.h"
+#include "can_ids.h"
 #include "driver/uart.h"
 #include "esp_check.h"
 #include "esp_err.h"
@@ -118,6 +120,10 @@ static void height_task(void *pvParameters) {
             }
             status_ui_update("Height", "%" PRId32 " cm", height_cm);
             ESP_LOGD(TAG, "Height: %ld cm (%u mm)", height_cm, distance_mm);
+            if (height_cm >= 0 && height_cm <= (int32_t)UINT16_MAX) {
+                can_height_t hb = {.height_cm = (uint16_t)height_cm};
+                (void)can_tx(CAN_ID_HEIGHT, (const uint8_t *)&hb, sizeof(hb));
+            }
         } else {
             ESP_LOGD(TAG, "Read failed: %s", esp_err_to_name(ret));
         }
@@ -164,27 +170,11 @@ esp_err_t height_init(void) {
         }
     }
 
-    const int max_wait = 45;
-    int waited = 0;
-    while (!s_initialized && !s_init_failed && waited < max_wait) {
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        waited++;
-    }
-    if (s_simulated || s_init_failed) {
-        ESP_LOGW(TAG, "Height skipped — entering simulated mode");
-        s_simulated = true;
-        s_initialized = true;
-        status_ui_update("Height", "SIM 30 cm");
-        return ESP_OK;
-    }
-    if (!s_initialized) {
-        ESP_LOGW(TAG, "Height init timed out — entering simulated mode");
-        s_simulated = true;
-        s_initialized = true;
-        status_ui_update("Height", "SIM 30 cm");
-        return ESP_OK;
-    }
     return ESP_OK;
+}
+
+bool height_is_ready(void) {
+    return s_initialized;
 }
 
 bool height_is_simulated(void) {

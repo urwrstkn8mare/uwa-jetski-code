@@ -22,8 +22,9 @@ typedef struct {
 
 typedef struct {
   lv_obj_t *container;
-  void (*lock_cb)(void);
+  bool (*lock_cb)(uint32_t timeout_ms);
   void (*unlock_cb)(void);
+  uint32_t lock_timeout_ms;
   uint32_t min_interval_ms;
   entry_t entries[MAX_ENTRIES];
   size_t entry_count;
@@ -46,10 +47,11 @@ esp_err_t status_ui_start(const status_ui_cfg_t *cfg) {
   memset(&s_status_ui, 0, sizeof(s_status_ui));
   s_status_ui.lock_cb = cfg->lock_cb;
   s_status_ui.unlock_cb = cfg->unlock_cb;
+  s_status_ui.lock_timeout_ms = cfg->lock_timeout_ms;
   s_status_ui.min_interval_ms = cfg->min_interval_ms;
 
   if (s_status_ui.lock_cb) {
-    s_status_ui.lock_cb();
+    s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
   }
 
   s_status_ui.container = lv_obj_create(cfg->parent);
@@ -87,7 +89,7 @@ void status_ui_stop(void) {
   }
 
   if (s_status_ui.lock_cb) {
-    s_status_ui.lock_cb();
+    s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
   }
 
   for (size_t i = 0; i < s_status_ui.entry_count; i++) {
@@ -154,7 +156,7 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
   }
 
   if (s_status_ui.lock_cb) {
-    s_status_ui.lock_cb();
+    s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
   }
 
   if (idx >= s_status_ui.entry_count) {

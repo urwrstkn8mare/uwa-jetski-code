@@ -1,0 +1,14 @@
+CompileFlags:
+  CompilationDatabase: "."
+
+Index:
+  Background: Build
+
+InlayHints:
+  Designators: true
+
+Completion:
+  HeaderInsertion: IWYU
+
+Hover:
+  ShowAKA: true

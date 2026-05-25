@@ -137,8 +137,11 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   case CAN_ID_SERVO_POS: {
     can_servo_pos_t sp;
     memcpy(&sp, buffer, sizeof(sp));
-    s_rx_data.servo_a_deg = sp.channel_a_deg;
-    s_rx_data.servo_b_deg = sp.channel_b_deg;
+    if (sp.channel == 0) {
+      s_rx_data.servo_a_deg = sp.deg;
+    } else {
+      s_rx_data.servo_b_deg = sp.deg;
+    }
     s_rx_data.have_servo = true;
     with_lock(paint_servo);
     break;

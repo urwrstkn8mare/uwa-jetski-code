@@ -8,10 +8,12 @@ from _project_cli import (
     add_common_logging_arg,
     add_project_arg,
     ensure_idf_env,
+    get_context,
     resolve_project_paths,
     run_idf_subcommand,
     setup_logging,
 )
+from merge_compile_commands import merge as merge_compile_commands
 
 
 def main() -> None:
@@ -47,6 +49,10 @@ def main() -> None:
         code = run_idf_subcommand(project_dir, "build", idf_args, pre_args=pre_args)
         if code != 0:
             errored.append(project_dir.name)
+
+    if args.clang:
+        logging.info("Merging compile_commands.json from all clang build dirs...")
+        merge_compile_commands(get_context().repo_root)
 
     if len(errored) > 0:
         logging.error(f"One or more builds failed: {', '.join(errored)}")
