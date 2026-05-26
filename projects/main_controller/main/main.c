@@ -39,6 +39,8 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     memcpy(&joy, buffer, sizeof(joy));
     s_joy_bank_pct  = (joy.bank_pct  > 100u) ? 100u : joy.bank_pct;
     s_joy_pitch_pct = (joy.pitch_pct > 100u) ? 100u : joy.pitch_pct;
+    status_ui_update("Joy RX", "bank=%u%% pitch=%u%%",
+                     (unsigned)s_joy_bank_pct, (unsigned)s_joy_pitch_pct);
   }
 }
 
@@ -158,6 +160,9 @@ static void ctrl_task(void *arg) {
         float diff_cmd  = bank_norm  * MAX_JOY_DEG;
         set_elevons_direct(pitch_cmd + diff_cmd, pitch_cmd - diff_cmd);
       }
+
+      can_ctrl_status_t cs = { .flags = 0u };
+      (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
 
       perf_tick(&s_disarmed_perf, (uint32_t)(esp_timer_get_time() - t0), false);
     }
