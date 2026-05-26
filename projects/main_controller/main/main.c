@@ -153,11 +153,21 @@ static void ctrl_task(void *arg) {
       }
 
       if (!servo_drive_any_cal_mode()) {
+        control_config_t ccfg;
+        control_get_cfg(&ccfg);
+        float max_diff   = (float)ccfg.elevon_max_diff_deg;
+        float max_center = control_get_elevon_max_angle() - max_diff;
+        if (max_center < 0.0f) max_center = 0.0f;
+
         float bank_norm  = ((float)s_joy_bank_pct  / 50.0f) - 1.0f;
         float pitch_norm = ((float)s_joy_pitch_pct / 50.0f) - 1.0f;
-        const float MAX_JOY_DEG = 15.0f;
-        float pitch_cmd = pitch_norm * MAX_JOY_DEG;
-        float diff_cmd  = bank_norm  * MAX_JOY_DEG;
+        if (bank_norm  >  1.0f) bank_norm  =  1.0f;
+        if (bank_norm  < -1.0f) bank_norm  = -1.0f;
+        if (pitch_norm >  1.0f) pitch_norm =  1.0f;
+        if (pitch_norm < -1.0f) pitch_norm = -1.0f;
+
+        float diff_cmd  = bank_norm  * max_diff;
+        float pitch_cmd = pitch_norm * max_center;
         set_elevons_direct(pitch_cmd + diff_cmd, pitch_cmd - diff_cmd);
       }
 
@@ -215,6 +225,12 @@ void app_main(void) {
   if (s_servo_right != SERVO_CHANNEL_INVALID) {
     servo_drive_apply_cal(s_servo_right, &cfg.servo.channel[1]);
   }
+
+  /* Derive effective servo angle range from calibration: tighter of the two channels,
+   * using the smaller of |min_angle| and max_angle for each. */
+  float range0 = fminf(fabsf(cfg.servo.channel[0].min_angle_deg), cfg.servo.channel[0].max_angle_deg);
+  float range1 = fminf(fabsf(cfg.servo.channel[1].min_angle_deg), cfg.servo.channel[1].max_angle_deg);
+  control_set_elevon_max_angle(fminf(range0, range1));
   if (s_servo_left == SERVO_CHANNEL_INVALID && s_servo_right == SERVO_CHANNEL_INVALID) {
     ESP_LOGW(TAG, "All servos in simulated mode");
   }

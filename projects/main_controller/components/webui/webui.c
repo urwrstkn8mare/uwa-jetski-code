@@ -307,6 +307,14 @@ static esp_err_t api_put_servo_calibration(httpd_req_t *req) {
     esp_err_t save_err = config_save_servo_cal(handle, &cal);
     if (save_err != ESP_OK) return json_error_resp(req, "NVS save failed");
 
+    /* Recompute effective servo angle range for control limits immediately. */
+    servo_calibration_t cal0, cal1;
+    servo_drive_get_cal(0, &cal0);
+    servo_drive_get_cal(1, &cal1);
+    float range0 = fminf(fabsf(cal0.min_angle_deg), cal0.max_angle_deg);
+    float range1 = fminf(fabsf(cal1.min_angle_deg), cal1.max_angle_deg);
+    control_set_elevon_max_angle(fminf(range0, range1));
+
     return json_ok_resp(req);
 }
 
@@ -381,7 +389,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"arm_threshold_pct\":%d,"
         "\"disarm_threshold_pct\":%d,"
         "\"height_enabled\":%s,"
-        "\"joy_pitch_max_deg\":%d,"
+        "\"elevon_max_diff_deg\":%d,"
         "\"servo0_min_pw_us\":%.2f,\"servo0_zero_pw_us\":%.2f,\"servo0_max_pw_us\":%.2f,\"servo0_min_angle_deg\":%.2f,\"servo0_max_angle_deg\":%.2f,"
         "\"servo1_min_pw_us\":%.2f,\"servo1_zero_pw_us\":%.2f,\"servo1_max_pw_us\":%.2f,\"servo1_min_angle_deg\":%.2f,\"servo1_max_angle_deg\":%.2f"
         "}",
@@ -393,7 +401,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)cfg.control.arm_threshold_pct,
         (int)cfg.control.disarm_threshold_pct,
         cfg.control.height_enabled ? "true" : "false",
-        (int)cfg.control.joy_pitch_max_deg,
+        (int)cfg.control.elevon_max_diff_deg,
         (double)cfg.servo.channel[0].min_pw_us, (double)cfg.servo.channel[0].zero_pw_us, (double)cfg.servo.channel[0].max_pw_us,
         (double)cfg.servo.channel[0].min_angle_deg, (double)cfg.servo.channel[0].max_angle_deg,
         (double)cfg.servo.channel[1].min_pw_us, (double)cfg.servo.channel[1].zero_pw_us, (double)cfg.servo.channel[1].max_pw_us,
@@ -438,7 +446,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(rudder_max_roll_deg,  "\"rudder_max_roll_deg\"")
     PARSE_I16(arm_threshold_pct,    "\"arm_threshold_pct\"")
     PARSE_I16(disarm_threshold_pct, "\"disarm_threshold_pct\"")
-    PARSE_I16(joy_pitch_max_deg,    "\"joy_pitch_max_deg\"")
+    PARSE_I16(elevon_max_diff_deg,     "\"elevon_max_diff_deg\"")
     if (has_key(buf, "\"height_enabled\"")) {
         cfg.control.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
     }

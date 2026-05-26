@@ -11,6 +11,9 @@
 static const char *TAG = "control";
 
 static control_config_t s_cfg;
+static float s_elevon_max_angle = (-SERVO_DEFAULT_MIN_ANGLE_DEG < SERVO_DEFAULT_MAX_ANGLE_DEG)
+                                  ? -SERVO_DEFAULT_MIN_ANGLE_DEG
+                                  : SERVO_DEFAULT_MAX_ANGLE_DEG;
 static bool s_armed;
 static int16_t s_target_height_cm;
 
@@ -97,6 +100,14 @@ void control_get_cfg(control_config_t *cfg) {
 
 void control_register_change_cb(void (*cb)(void)) {
     s_change_cb = cb;
+}
+
+void control_set_elevon_max_angle(float deg) {
+    if (deg > 0.0f) s_elevon_max_angle = deg;
+}
+
+float control_get_elevon_max_angle(void) {
+    return s_elevon_max_angle;
 }
 
 void control_arm(void) {
@@ -187,11 +198,13 @@ void control_update(int16_t height_cm,
         pitch_target = apply_pid(height_error, kp_h, ki_h, kd_h, dt,
                                  &s_height_integral, &s_height_prev_error, &s_height_first);
     } else {
-        /* Joystick pitch axis: 0..100 → -max..+max degrees */
+        /* Joystick pitch axis: 0..100 → ±(elevon_max_angle - elevon_max_diff_deg) */
         float joy_norm = ((float)joy_pitch_pct / 50.0f) - 1.0f;
         if (joy_norm >  1.0f) joy_norm =  1.0f;
         if (joy_norm < -1.0f) joy_norm = -1.0f;
-        pitch_target = joy_norm * (float)s_cfg.joy_pitch_max_deg;
+        float max_center = s_elevon_max_angle - (float)s_cfg.elevon_max_diff_deg;
+        if (max_center < 0.0f) max_center = 0.0f;
+        pitch_target = joy_norm * max_center;
         /* Keep height integrator zeroed when bypassed */
         s_height_integral  = 0;
         s_height_prev_error = 0;
@@ -205,8 +218,12 @@ void control_update(int16_t height_cm,
     float elevon_center = apply_pid(pitch_error, kp_p, ki_p, kd_p, dt,
                                     &s_pitch_integral, &s_pitch_prev_error, &s_pitch_first);
 
-    if (elevon_center > 50.0f) elevon_center = 50.0f;
-    if (elevon_center < -50.0f) elevon_center = -50.0f;
+    float max_diff   = (float)s_cfg.elevon_max_diff_deg;
+    float max_center = s_elevon_max_angle - max_diff;
+    if (max_center < 0.0f) max_center = 0.0f;
+
+    if (elevon_center >  max_center) elevon_center =  max_center;
+    if (elevon_center < -max_center) elevon_center = -max_center;
 
     float rudder_exp = (float)s_cfg.rudder_exponent_x100 / 100.0f;
     float rudder_norm = ((float)rudder_pct / 50.0f) - 1.0f;
@@ -220,8 +237,8 @@ void control_update(int16_t height_cm,
     float elevon_diff = apply_pid(roll_error, kp_r, ki_r, kd_r, dt,
                                   &s_roll_integral, &s_roll_prev_error, &s_roll_first);
 
-    if (elevon_diff > 25.0f) elevon_diff = 25.0f;
-    if (elevon_diff < -25.0f) elevon_diff = -25.0f;
+    if (elevon_diff >  max_diff) elevon_diff =  max_diff;
+    if (elevon_diff < -max_diff) elevon_diff = -max_diff;
 
     float elevon_left = elevon_center + elevon_diff;
     float elevon_right = elevon_center - elevon_diff;

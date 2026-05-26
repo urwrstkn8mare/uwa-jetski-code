@@ -30,6 +30,11 @@ bool control_get_height_enabled(void);
 
 void control_get_last_output(control_output_t *out);
 
+/* Set the effective servo angle range (derived from servo calibration min/max).
+ * Used to compute max elevon_center = max_angle - elevon_max_diff_deg. */
+void  control_set_elevon_max_angle(float deg);
+float control_get_elevon_max_angle(void);
+
 /* joy_pitch_pct: 0..100, 50 = centre. Used when height_enabled is false to
  * set pitch target directly from the joystick up/down axis. */
 void control_update(int16_t height_cm,
