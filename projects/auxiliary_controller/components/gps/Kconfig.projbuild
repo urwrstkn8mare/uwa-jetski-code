@@ -1,4 +1,4 @@
-menu "UWA Jetski — GPS (Neo-6M UART)"
+menu "UWA Jetski - GPS (Neo-6M UART)"
     config GPS_UART_PORT_NUM
         int "UART port"
         range 0 2

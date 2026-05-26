@@ -3,13 +3,18 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "gps.h"
-#include "rudder_pot.h"
+#include "joystick.h"
 #include "status_ui.h"
 #include "t_display_s3.h"
 
 #include "lvgl.h"
 
 static const char *TAG = "aux_main";
+
+static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
+  (void)timestamp;
+  joystick_on_can_rx(buffer, header_id);
+}
 
 static void on_can_status(const char *line) {
   status_ui_update("CAN", "%s", line);
@@ -38,13 +43,13 @@ void app_main(void) {
     ESP_LOGW(TAG, "tdisplays3_init failed — serial only");
   }
 
-  if (can_init(NULL) != ESP_OK) {
+  if (can_init(on_can_rx) != ESP_OK) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
   can_register_status_cb(on_can_status);
 
   gps_init();
-  if (rudder_pot_init() != ESP_OK) {
-    ESP_LOGW(TAG, "Rudder ADC not initialised");
+  if (joystick_init() != ESP_OK) {
+    ESP_LOGW(TAG, "Joystick ADC not initialised");
   }
 }

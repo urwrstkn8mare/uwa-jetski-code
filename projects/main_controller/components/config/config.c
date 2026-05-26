@@ -27,6 +27,8 @@ static const control_config_t s_control_defaults = {
     .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
     .arm_threshold_pct    = CONTROL_DEFAULT_ARM_THRESHOLD_PCT,
     .disarm_threshold_pct = CONTROL_DEFAULT_DISARM_THRESHOLD_PCT,
+    .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
+    .joy_pitch_max_deg    = CONTROL_DEFAULT_JOY_PITCH_MAX_DEG,
 };
 
 static const servo_config_t s_servo_defaults = {
@@ -63,6 +65,8 @@ static const app_config_t s_defaults = {
         .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
         .arm_threshold_pct    = CONTROL_DEFAULT_ARM_THRESHOLD_PCT,
         .disarm_threshold_pct = CONTROL_DEFAULT_DISARM_THRESHOLD_PCT,
+        .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
+        .joy_pitch_max_deg    = CONTROL_DEFAULT_JOY_PITCH_MAX_DEG,
     },
     .servo = {
         .channel = {

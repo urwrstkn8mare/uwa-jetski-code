@@ -25,9 +25,11 @@ typedef struct {
   int32_t motor_power_kw_x10[DASHBOARD_MOTOR_MAX];  /**< displayed "XX.X kW" */
   int32_t motor_rpm[DASHBOARD_MOTOR_MAX];           /**< displayed "XXXX RPM" */
   int32_t motor_temp_c[DASHBOARD_MOTOR_MAX];        /**< displayed "XXC" */
-  int32_t rudder_deg;            /**< -20..20 */
-  int32_t elevon_left_deg;       /**< -15..15 */
-  int32_t elevon_right_deg;      /**< -15..15 */
+  int32_t rudder_deg;             /**< -20..20 */
+  int32_t elevon_left_deg;        /**< -15..15 */
+  int32_t elevon_right_deg;       /**< -15..15 */
+  int32_t pitch_setpoint_deg;     /**< PID pitch target */
+  int32_t roll_setpoint_deg;      /**< PID roll target */
 } dashboard_data_t;
 
 typedef const lv_font_t *(*font_get_cb_t)(uint16_t size_px, int weight, void *user_data);
@@ -70,3 +72,4 @@ void dashboard_ui_set_battery(int32_t percent, int32_t voltage_v, int32_t curren
 void dashboard_ui_set_motor(int32_t index, int32_t percent, int32_t power_kw_x10, int32_t rpm, int32_t temp_c);
 void dashboard_ui_set_rudder(int32_t rudder_deg);
 void dashboard_ui_set_elevons(int32_t left_deg, int32_t right_deg);
+void dashboard_ui_set_attitude_setpoints(int32_t pitch_deg, int32_t roll_deg);

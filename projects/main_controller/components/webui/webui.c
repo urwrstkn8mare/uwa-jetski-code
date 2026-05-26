@@ -68,6 +68,10 @@ static float parse_float(const char *json, const char *key) {
     return strtof(p, NULL);
 }
 
+static bool has_key(const char *json, const char *key) {
+    return strstr(json, key) != NULL;
+}
+
 static esp_err_t send_raw(int fd, const char *data, size_t len) {
     if (fd < 0 || data == NULL) return ESP_ERR_INVALID_ARG;
     ssize_t sent = send(fd, data, len, 0);
@@ -106,13 +110,15 @@ static void sse_push_state(void) {
         "\"cal_mode\":%s,"
         "\"target_cm\":%d,"
         "\"elevon_left_deg\":%.1f,"
-        "\"elevon_right_deg\":%.1f"
+        "\"elevon_right_deg\":%.1f,"
+        "\"height_enabled\":%s"
         "}",
         control_is_armed() ? "true" : "false",
         servo_drive_any_cal_mode() ? "true" : "false",
         control_get_target(),
         (double)out.elevon_left_deg,
-        (double)out.elevon_right_deg);
+        (double)out.elevon_right_deg,
+        control_get_height_enabled() ? "true" : "false");
     if (n > 0 && n < (int)sizeof(buf)) {
         sse_send(buf);
     }
@@ -169,13 +175,15 @@ static esp_err_t api_get_state(httpd_req_t *req) {
         "\"cal_mode\":%s,"
         "\"target_cm\":%d,"
         "\"elevon_left_deg\":%.1f,"
-        "\"elevon_right_deg\":%.1f"
+        "\"elevon_right_deg\":%.1f,"
+        "\"height_enabled\":%s"
         "}",
         control_is_armed() ? "true" : "false",
         servo_drive_any_cal_mode() ? "true" : "false",
         control_get_target(),
         (double)out.elevon_left_deg,
-        (double)out.elevon_right_deg);
+        (double)out.elevon_right_deg,
+        control_get_height_enabled() ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
 }
@@ -338,6 +346,8 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"rudder_max_roll_deg\":%d,"
         "\"arm_threshold_pct\":%d,"
         "\"disarm_threshold_pct\":%d,"
+        "\"height_enabled\":%s,"
+        "\"joy_pitch_max_deg\":%d,"
         "\"servo0_min_pw_us\":%.2f,\"servo0_zero_pw_us\":%.2f,\"servo0_max_pw_us\":%.2f,\"servo0_min_angle_deg\":%.2f,\"servo0_max_angle_deg\":%.2f,"
         "\"servo1_min_pw_us\":%.2f,\"servo1_zero_pw_us\":%.2f,\"servo1_max_pw_us\":%.2f,\"servo1_min_angle_deg\":%.2f,\"servo1_max_angle_deg\":%.2f"
         "}",
@@ -348,6 +358,8 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)cfg.control.rudder_max_roll_deg,
         (int)cfg.control.arm_threshold_pct,
         (int)cfg.control.disarm_threshold_pct,
+        cfg.control.height_enabled ? "true" : "false",
+        (int)cfg.control.joy_pitch_max_deg,
         (double)cfg.servo.channel[0].min_pw_us, (double)cfg.servo.channel[0].zero_pw_us, (double)cfg.servo.channel[0].max_pw_us,
         (double)cfg.servo.channel[0].min_angle_deg, (double)cfg.servo.channel[0].max_angle_deg,
         (double)cfg.servo.channel[1].min_pw_us, (double)cfg.servo.channel[1].zero_pw_us, (double)cfg.servo.channel[1].max_pw_us,
@@ -374,19 +386,31 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     app_config_t cfg;
     config_load(&cfg);
 
-    cfg.control.height_kp = (int32_t)parse_number(buf, "\"height_kp\"");
-    cfg.control.height_ki = (int32_t)parse_number(buf, "\"height_ki\"");
-    cfg.control.height_kd = (int32_t)parse_number(buf, "\"height_kd\"");
-    cfg.control.pitch_kp = (int32_t)parse_number(buf, "\"pitch_kp\"");
-    cfg.control.pitch_ki = (int32_t)parse_number(buf, "\"pitch_ki\"");
-    cfg.control.pitch_kd = (int32_t)parse_number(buf, "\"pitch_kd\"");
-    cfg.control.roll_kp = (int32_t)parse_number(buf, "\"roll_kp\"");
-    cfg.control.roll_ki = (int32_t)parse_number(buf, "\"roll_ki\"");
-    cfg.control.roll_kd = (int32_t)parse_number(buf, "\"roll_kd\"");
-    cfg.control.rudder_exponent_x100 = (int16_t)parse_number(buf, "\"rudder_exponent_x100\"");
-    cfg.control.rudder_max_roll_deg = (int16_t)parse_number(buf, "\"rudder_max_roll_deg\"");
-    cfg.control.arm_threshold_pct = (int16_t)parse_number(buf, "\"arm_threshold_pct\"");
-    cfg.control.disarm_threshold_pct = (int16_t)parse_number(buf, "\"disarm_threshold_pct\"");
+#define PARSE_INT(field, key) \
+    if (has_key(buf, key)) { cfg.control.field = (int32_t)parse_number(buf, key); }
+#define PARSE_I16(field, key) \
+    if (has_key(buf, key)) { cfg.control.field = (int16_t)parse_number(buf, key); }
+
+    PARSE_INT(height_kp, "\"height_kp\"")
+    PARSE_INT(height_ki, "\"height_ki\"")
+    PARSE_INT(height_kd, "\"height_kd\"")
+    PARSE_INT(pitch_kp,  "\"pitch_kp\"")
+    PARSE_INT(pitch_ki,  "\"pitch_ki\"")
+    PARSE_INT(pitch_kd,  "\"pitch_kd\"")
+    PARSE_INT(roll_kp,   "\"roll_kp\"")
+    PARSE_INT(roll_ki,   "\"roll_ki\"")
+    PARSE_INT(roll_kd,   "\"roll_kd\"")
+    PARSE_I16(rudder_exponent_x100, "\"rudder_exponent_x100\"")
+    PARSE_I16(rudder_max_roll_deg,  "\"rudder_max_roll_deg\"")
+    PARSE_I16(arm_threshold_pct,    "\"arm_threshold_pct\"")
+    PARSE_I16(disarm_threshold_pct, "\"disarm_threshold_pct\"")
+    PARSE_I16(joy_pitch_max_deg,    "\"joy_pitch_max_deg\"")
+    if (has_key(buf, "\"height_enabled\"")) {
+        cfg.control.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
+    }
+
+#undef PARSE_INT
+#undef PARSE_I16
 
     free(buf);
 

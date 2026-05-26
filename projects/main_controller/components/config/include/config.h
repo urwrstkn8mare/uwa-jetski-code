@@ -22,6 +22,10 @@ typedef struct {
     int16_t rudder_max_roll_deg;
     int16_t arm_threshold_pct;
     int16_t disarm_threshold_pct;
+    /* When false, height PID is bypassed and the joystick pitch axis sets the
+     * pitch target directly (range ±joy_pitch_max_deg). */
+    bool    height_enabled;
+    int16_t joy_pitch_max_deg;  /* max pitch commanded by joystick, degrees */
 } control_config_t;
 
 typedef struct {
@@ -55,6 +59,8 @@ typedef struct {
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
 #define CONTROL_DEFAULT_ARM_THRESHOLD_PCT     50
 #define CONTROL_DEFAULT_DISARM_THRESHOLD_PCT  30
+#define CONTROL_DEFAULT_HEIGHT_ENABLED        true
+#define CONTROL_DEFAULT_JOY_PITCH_MAX_DEG     15
 
 #define SERVO_DEFAULT_MIN_PW_US      1300.0f
 #define SERVO_DEFAULT_ZERO_PW_US     1500.0f

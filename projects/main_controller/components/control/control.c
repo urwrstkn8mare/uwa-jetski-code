@@ -28,7 +28,6 @@ static float s_roll_prev_error;
 static bool  s_roll_first;
 
 static control_output_t s_last_out;
-static void (*s_arm_cb)(void);
 static void (*s_change_cb)(void);
 
 static float apply_pid(float error, float kp, float ki, float kd,
@@ -96,10 +95,6 @@ void control_get_cfg(control_config_t *cfg) {
     }
 }
 
-void control_register_arm_cb(void (*cb)(void)) {
-    s_arm_cb = cb;
-}
-
 void control_register_change_cb(void (*cb)(void)) {
     s_change_cb = cb;
 }
@@ -109,7 +104,6 @@ void control_arm(void) {
         s_armed = true;
         reset_integrals();
         ESP_LOGI(TAG, "Armed");
-        if (s_arm_cb) s_arm_cb();
         if (s_change_cb) s_change_cb();
     }
 }
@@ -146,6 +140,10 @@ int16_t control_get_target(void) {
     return s_target_height_cm;
 }
 
+bool control_get_height_enabled(void) {
+    return s_cfg.height_enabled;
+}
+
 void control_get_last_output(control_output_t *out) {
     if (out) {
         *out = s_last_out;
@@ -156,6 +154,7 @@ void control_update(int16_t height_cm,
                     float pitch_deg,
                     float roll_deg,
                     uint16_t rudder_pct,
+                    uint16_t joy_pitch_pct,
                     control_output_t *out) {
     const float dt = 0.02f;
 
@@ -182,9 +181,22 @@ void control_update(int16_t height_cm,
     float ki_r = (float)s_cfg.roll_ki / 1000.0f;
     float kd_r = (float)s_cfg.roll_kd / 1000.0f;
 
-    float height_error = (float)(s_target_height_cm - height_cm);
-    float pitch_target = apply_pid(height_error, kp_h, ki_h, kd_h, dt,
-                                   &s_height_integral, &s_height_prev_error, &s_height_first);
+    float pitch_target;
+    if (s_cfg.height_enabled) {
+        float height_error = (float)(s_target_height_cm - height_cm);
+        pitch_target = apply_pid(height_error, kp_h, ki_h, kd_h, dt,
+                                 &s_height_integral, &s_height_prev_error, &s_height_first);
+    } else {
+        /* Joystick pitch axis: 0..100 → -max..+max degrees */
+        float joy_norm = ((float)joy_pitch_pct / 50.0f) - 1.0f;
+        if (joy_norm >  1.0f) joy_norm =  1.0f;
+        if (joy_norm < -1.0f) joy_norm = -1.0f;
+        pitch_target = joy_norm * (float)s_cfg.joy_pitch_max_deg;
+        /* Keep height integrator zeroed when bypassed */
+        s_height_integral  = 0;
+        s_height_prev_error = 0;
+        s_height_first = true;
+    }
 
     if (pitch_target > 15.0f) pitch_target = 15.0f;
     if (pitch_target < -15.0f) pitch_target = -15.0f;
@@ -218,16 +230,17 @@ void control_update(int16_t height_cm,
         out->armed = true;
         out->elevon_left_deg = elevon_left;
         out->elevon_right_deg = elevon_right;
-        out->height_pitch_target = (int16_t)(pitch_target * 10.0f);
         s_last_out = *out;
     }
 
     can_ctrl_status_t cs = {
-        .height_target_cm  = s_target_height_cm,
-        .height_current_cm = height_cm,
-        .pitch_deg         = (int8_t)lroundf(pitch_deg),
-        .roll_deg          = (int8_t)lroundf(roll_deg),
-        .flags             = 1u,
+        .height_target_cm      = (uint8_t)(s_target_height_cm < 0   ? 0   :
+                                            s_target_height_cm > 100 ? 100 :
+                                            s_target_height_cm),
+        .height_current_cm_x10 = (uint16_t)(height_cm * 10),
+        .pitch_target_deg_x10  = (int16_t)(pitch_target * 10.0f),
+        .roll_target_deg_x10   = (int16_t)(mapped_roll  * 10.0f),
+        .flags                 = 1u,
     };
     (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
 

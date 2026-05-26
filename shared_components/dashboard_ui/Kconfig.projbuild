@@ -1,4 +1,4 @@
-menu "Dashboard UI"
+menu "UWA Jetski - Dashboard UI"
 
 config DASHBOARD_UI_THROTTLE_HZ
     int "Max UI patch rate (Hz)"

@@ -27,6 +27,7 @@ typedef enum {
   kUiSpeed = 0,
   kUiHeight,
   kUiAttitude,
+  kUiAttitudeSetpoints,
   kUiBattery,
   kUiMotor0,
   kUiMotor1,
@@ -72,11 +73,16 @@ typedef struct {
   lv_obj_t *heading_label;
   lv_obj_t *roll_label;
   lv_obj_t *pitch_label;
+  lv_obj_t *roll_sp_label;
+  lv_obj_t *pitch_sp_label;
   lv_obj_t *pitch_marks[ATTITUDE_TICK_COUNT];
   void *draw_buf_mem;
   int32_t roll_deg;
   int32_t pitch_deg;
   int32_t heading_deg;
+  int32_t pitch_setpoint_deg;
+  int32_t roll_setpoint_deg;
+  bool have_setpoints;
   int32_t card_w;
   int32_t card_h;
 } attitude_card_t;
@@ -460,6 +466,46 @@ static void attitude_canvas_fill_background(attitude_card_t *card) {
   lv_draw_buf_flush_cache(draw_buf, NULL);
 }
 
+static void draw_aircraft_pointer(lv_layer_t *layer, int32_t px, int32_t py,
+                                   int32_t roll_deg, lv_color_t color, lv_opa_t opa) {
+  const int16_t angle = (int16_t)clamp_i32(roll_deg, -89, 89);
+  const int32_t s = lv_trigo_sin(angle);
+  const int32_t c = lv_trigo_cos(angle);
+
+#define RPX(x, y) (px + (int32_t)(((x) * c - (y) * s) >> LV_TRIGO_SHIFT))
+#define RPY(x, y) (py + (int32_t)(((x) * s + (y) * c) >> LV_TRIGO_SHIFT))
+
+  lv_draw_line_dsc_t ln;
+  lv_draw_line_dsc_init(&ln);
+  ln.color       = color;
+  ln.width       = 2;
+  ln.opa         = opa;
+  ln.round_start = 1;
+  ln.round_end   = 1;
+
+  ln.p1.x = RPX(-56, 0); ln.p1.y = RPY(-56, 0);
+  ln.p2.x = RPX(-14, 0); ln.p2.y = RPY(-14, 0);
+  lv_draw_line(layer, &ln);
+  ln.p1.x = RPX(14, 0);  ln.p1.y = RPY(14, 0);
+  ln.p2.x = RPX(56, 0);  ln.p2.y = RPY(56, 0);
+  lv_draw_line(layer, &ln);
+  ln.p1.x = RPX(-14, 0); ln.p1.y = RPY(-14, 0);
+  ln.p2.x = RPX(-5,  0); ln.p2.y = RPY(-5,  0);
+  lv_draw_line(layer, &ln);
+  ln.p1.x = RPX(-5, 0);  ln.p1.y = RPY(-5, 0);
+  ln.p2.x = RPX( 0, -9); ln.p2.y = RPY( 0, -9);
+  lv_draw_line(layer, &ln);
+  ln.p1.x = RPX(0, -9);  ln.p1.y = RPY(0, -9);
+  ln.p2.x = RPX(5,  0);  ln.p2.y = RPY(5,  0);
+  lv_draw_line(layer, &ln);
+  ln.p1.x = RPX(5,  0);  ln.p1.y = RPY(5,  0);
+  ln.p2.x = RPX(14, 0);  ln.p2.y = RPY(14, 0);
+  lv_draw_line(layer, &ln);
+
+#undef RPX
+#undef RPY
+}
+
 static void attitude_canvas_draw(attitude_card_t *card, lv_layer_t *layer) {
   if (card == NULL || layer == NULL) {
     return;
@@ -471,6 +517,18 @@ static void attitude_canvas_draw(attitude_card_t *card, lv_layer_t *layer) {
   const int32_t cy = h / 2;
   const int32_t roll = clamp_i32(card->roll_deg, -45, 45);
   const int32_t pitch_px = clamp_i32(card->pitch_deg, -40, 40) * ATTITUDE_SCALE_PX;
+
+  /* Setpoint pointer — flight-director style: drawn offset from the actual
+   * pointer by the pitch and roll ERROR only.  When on setpoint it overlaps
+   * the yellow pointer; displacement tells the pilot which way to correct. */
+  if (card->have_setpoints) {
+    const int32_t sp_pitch_px   = clamp_i32(card->pitch_setpoint_deg, -40, 40) * ATTITUDE_SCALE_PX;
+    const int32_t sp_roll       = clamp_i32(card->roll_setpoint_deg, -45, 45);
+    const int32_t pitch_err_px  = sp_pitch_px - pitch_px;
+    const int32_t roll_err      = sp_roll - roll;
+    draw_aircraft_pointer(layer, cx, cy - pitch_err_px, roll_err,
+                          lv_color_hex(0xFF4500), LV_OPA_90);
+  }
 
   lv_draw_line_dsc_t line;
   lv_draw_line_dsc_init(&line);
@@ -1003,8 +1061,32 @@ static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t
   lv_obj_add_flag(card.pitch_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.pitch_label, LV_ALIGN_BOTTOM_RIGHT, -8, -6);
 
+  /* Setpoint labels in cyan, stacked above the actual roll/pitch labels */
+  const int32_t sp_y_ofs = -(6 + h / 14);
+  const lv_color_t sp_color = lv_color_hex(0xFF4500);
+  card.roll_sp_label = add_simple_label(card.root, "SP_R --", att_small,
+                                         sp_color, (lv_opa_t)(255 * 0.85));
+  lv_obj_add_flag(card.roll_sp_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_align(card.roll_sp_label, LV_ALIGN_BOTTOM_LEFT, 8, sp_y_ofs);
+
+  card.pitch_sp_label = add_simple_label(card.root, "SP_P --", att_small,
+                                          sp_color, (lv_opa_t)(255 * 0.85));
+  lv_obj_add_flag(card.pitch_sp_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_align(card.pitch_sp_label, LV_ALIGN_BOTTOM_RIGHT, -8, sp_y_ofs);
+
   add_title(card.root, "ATTITUDE");
   return card;
+}
+
+static void attitude_card_redraw(attitude_card_t *card) {
+  if (card == NULL || card->canvas == NULL || card->draw_buf_mem == NULL) {
+    return;
+  }
+  attitude_canvas_fill_background(card);
+  lv_layer_t layer;
+  lv_canvas_init_layer(card->canvas, &layer);
+  attitude_canvas_draw(card, &layer);
+  lv_canvas_finish_layer(card->canvas, &layer);
 }
 
 static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
@@ -1024,13 +1106,7 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
   card->pitch_deg = pitch_deg;
   card->heading_deg = heading;
 
-  if (card->canvas != NULL && card->draw_buf_mem != NULL) {
-    attitude_canvas_fill_background(card);
-    lv_layer_t layer;
-    lv_canvas_init_layer(card->canvas, &layer);
-    attitude_canvas_draw(card, &layer);
-    lv_canvas_finish_layer(card->canvas, &layer);
-  }
+  attitude_card_redraw(card);
 
   const int32_t canvas_w = card->card_w - 2;
   const int32_t canvas_h = card->card_h - 2;
@@ -1442,6 +1518,39 @@ void dashboard_ui_set_attitude(int32_t roll_deg, int32_t pitch_deg, int32_t head
   }
 }
 
+void dashboard_ui_set_attitude_setpoints(int32_t pitch_deg, int32_t roll_deg) {
+  if (!s_dashboard_ui.initialized) {
+    return;
+  }
+  if (!ui_throttle_ok(kUiAttitudeSetpoints)) {
+    return;
+  }
+  attitude_card_t *card = &s_dashboard_ui.attitude;
+  if (card->root == NULL) {
+    return;
+  }
+  if (s_dashboard_ui.lock_cb) {
+    s_dashboard_ui.lock_cb(s_dashboard_ui.lock_timeout_ms);
+  }
+  card->pitch_setpoint_deg = clamp_i32(pitch_deg, -25, 25);
+  card->roll_setpoint_deg  = clamp_i32(roll_deg, -45, 45);
+  card->have_setpoints     = true;
+  attitude_card_redraw(card);
+  if (card->pitch_sp_label) {
+    char txt[16];
+    snprintf(txt, sizeof(txt), "SP_P %+d", (int)pitch_deg);
+    lv_label_set_text(card->pitch_sp_label, txt);
+  }
+  if (card->roll_sp_label) {
+    char txt[16];
+    snprintf(txt, sizeof(txt), "SP_R %+d", (int)roll_deg);
+    lv_label_set_text(card->roll_sp_label, txt);
+  }
+  if (s_dashboard_ui.unlock_cb) {
+    s_dashboard_ui.unlock_cb();
+  }
+}
+
 void dashboard_ui_set_battery(int32_t percent, int32_t voltage_v, int32_t current_a, int32_t temp_c) {
   if (!s_dashboard_ui.initialized) {
     return;
@@ -1534,4 +1643,5 @@ void dashboard_ui_apply_data(const dashboard_data_t *data) {
 
   dashboard_ui_set_rudder(data->rudder_deg);
   dashboard_ui_set_elevons(data->elevon_left_deg, data->elevon_right_deg);
+  dashboard_ui_set_attitude_setpoints(data->pitch_setpoint_deg, data->roll_setpoint_deg);
 }

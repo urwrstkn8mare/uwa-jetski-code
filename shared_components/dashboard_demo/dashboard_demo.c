@@ -37,9 +37,11 @@ void dashboard_demo_fill(dashboard_data_t *data, uint32_t t)
     data->motor_temp_c[0]       = 40 + sin_scale(28, 10, t);
     data->motor_temp_c[1]       = 42 + sin_scale(32, 8, t);
 
-    data->rudder_deg       = sin_scale(24, 8, t);
-    data->elevon_left_deg  = sin_scale(19, 6, t);
-    data->elevon_right_deg = -sin_scale(21, 6, t);
+    data->rudder_deg         = sin_scale(24, 8, t);
+    data->elevon_left_deg    = sin_scale(19, 6, t);
+    data->elevon_right_deg   = -sin_scale(21, 6, t);
+    data->pitch_setpoint_deg = sin_scale(12, 20, t);
+    data->roll_setpoint_deg  = sin_scale(15, 25, t);
 }
 
 void dashboard_demo_update_ui(uint32_t elapsed_ms)

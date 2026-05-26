@@ -1,0 +1,42 @@
+menu "UWA Jetski - Joystick potentiometers"
+
+    config JOYSTICK_SKIP_HW
+        bool "Disable joystick hardware init"
+        default n
+        help
+            Skip ADC and joystick task initialisation. Useful for builds without
+            physical potentiometers wired.
+
+    comment "Bank axis (left/right — controls roll via elevons)"
+
+    config JOYSTICK_BANK_GPIO
+        int "Bank pot ADC GPIO"
+        range 1 48
+        default 18
+
+    config JOYSTICK_BANK_ADC_MIN
+        int "Bank pot raw ADC at 0% (full left)"
+        default 0
+
+    config JOYSTICK_BANK_ADC_MAX
+        int "Bank pot raw ADC at 100% (full right)"
+        default 4095
+
+    comment "Pitch axis (up/down — controls pitch via elevons)"
+
+    config JOYSTICK_PITCH_GPIO
+        int "Pitch pot ADC GPIO"
+        range 1 48
+        default 19
+        help
+            Must be on the same ADC unit as the bank pot GPIO.
+
+    config JOYSTICK_PITCH_ADC_MIN
+        int "Pitch pot raw ADC at 0% (full down)"
+        default 0
+
+    config JOYSTICK_PITCH_ADC_MAX
+        int "Pitch pot raw ADC at 100% (full up)"
+        default 4095
+
+endmenu

@@ -1,4 +1,4 @@
-menu "Tab5 Dashboard feed"
+menu "UWA Jetski - Tab5 Dashboard"
 
 choice TAB5_DASHBOARD_FEED_MODE
     prompt "Dashboard feed source"

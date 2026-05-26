@@ -1,4 +1,4 @@
-menu "UWA Jetski — CAN configuration"
+menu "UWA Jetski - CAN configuration"
 
     config CANTX
         int "CAN transceiver TX GPIO pin"

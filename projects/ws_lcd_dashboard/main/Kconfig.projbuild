@@ -1,4 +1,4 @@
-menu "WS LCD Dashboard feed"
+menu "UWA Jetski - WS LCD Dashboard"
 
 choice WS_LCD_DASHBOARD_FEED_MODE
     prompt "Dashboard feed source"

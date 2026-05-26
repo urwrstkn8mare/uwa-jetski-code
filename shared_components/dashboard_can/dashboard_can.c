@@ -2,6 +2,7 @@
 
 #include "can.h"
 #include "can_ids.h"
+#include "encoder_can.h"
 #include "status_ui.h"
 
 #include <inttypes.h>
@@ -35,20 +36,19 @@ typedef struct {
   float servo_b_deg;
   float speed_knots;
   float heading_deg;
-  uint16_t pot_pct;
+  int16_t rudder_angle_deg;
   int16_t height_target_cm;
+  int16_t pitch_setpoint_deg;
+  int16_t roll_setpoint_deg;
   bool have_attitude;
   bool have_height;
   bool have_servo;
   bool have_gps_vel;
-  bool have_pot;
+  bool have_rudder;
   bool have_ctrl;
 } can_rx_snapshot_t;
 
 static can_rx_snapshot_t s_rx_data;
-static dashboard_can_lock_fn_t s_lock;
-static dashboard_can_unlock_fn_t s_unlock;
-static void *s_lock_ctx;
 
 static void paint_attitude(void) {
   if (!s_rx_data.have_attitude) {
@@ -92,12 +92,22 @@ static void paint_gps_vel(void) {
   }
 }
 
-static void paint_pot(void) {
-  if (!s_rx_data.have_pot) {
+static void paint_rudder(void) {
+  if (!s_rx_data.have_rudder) {
     return;
   }
-  int32_t rudder = ((int32_t)s_rx_data.pot_pct * 40) / 100 - 20;
-  dashboard_ui_set_rudder(rudder);
+  int32_t rudder_deg = (int32_t)s_rx_data.rudder_angle_deg;
+  if (rudder_deg >  20) rudder_deg =  20;
+  if (rudder_deg < -20) rudder_deg = -20;
+  dashboard_ui_set_rudder(rudder_deg);
+}
+
+static void paint_setpoints(void) {
+  if (!s_rx_data.have_ctrl) {
+    return;
+  }
+  dashboard_ui_set_attitude_setpoints((int32_t)s_rx_data.pitch_setpoint_deg,
+                                      (int32_t)s_rx_data.roll_setpoint_deg);
 }
 
 static void push_can_status(void) {
@@ -113,6 +123,10 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   if (buffer == NULL) {
     return;
   }
+
+  /* Route to encoder_can for rudder angle decoding */
+  encoder_can_on_rx(buffer, header_id);
+
   switch (header_id) {
   case CAN_ID_ATTITUDE: {
     if (sizeof(can_attitude_t) <= 8) {
@@ -155,14 +169,6 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     with_lock(paint_gps_vel);
     break;
   }
-  case CAN_ID_POTENTIOMETER: {
-    can_potentiometer_t pot;
-    memcpy(&pot, buffer, sizeof(pot));
-    s_rx_data.pot_pct = (pot.value > 100) ? 100 : pot.value;
-    s_rx_data.have_pot = true;
-    with_lock(paint_pot);
-    break;
-  }
   case CAN_ID_GPS_POSITION: {
     can_gps_position_t gp;
     memcpy(&gp, buffer, sizeof(gp));
@@ -174,16 +180,36 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   case CAN_ID_CTRL_STATUS: {
     can_ctrl_status_t cs;
     memcpy(&cs, buffer, sizeof(cs));
-    s_rx_data.height_target_cm = cs.height_target_cm;
-    if (!s_rx_data.have_height) {
-      s_rx_data.height_cm = cs.height_current_cm;
-      s_rx_data.have_height = true;
-    }
-    s_rx_data.have_ctrl = true;
+    s_rx_data.height_target_cm    = (int16_t)cs.height_target_cm;
+    s_rx_data.height_cm           = (int16_t)(cs.height_current_cm_x10 / 10);
+    s_rx_data.pitch_setpoint_deg  = cs.pitch_target_deg_x10 / 10;
+    s_rx_data.roll_setpoint_deg   = cs.roll_target_deg_x10  / 10;
+    s_rx_data.have_height         = true;
+    s_rx_data.have_ctrl           = true;
     with_lock(paint_height);
+    with_lock(paint_setpoints);
+    break;
+  }
+  case CAN_ID_CTRL_PERF: {
+    can_ctrl_perf_t perf;
+    memcpy(&perf, buffer, sizeof(perf));
+    status_ui_update(perf.is_armed ? "perf_armed" : "perf_disarmed",
+                     "iter %u/%uus avg %uHz",
+                     (unsigned)perf.iter_avg_us,
+                     (unsigned)perf.iter_max_us,
+                     (unsigned)perf.iter_hz);
     break;
   }
   default:
+    /* Check if this is an encoder frame */
+    if (header_id == (uint32_t)CONFIG_ENCODER_DEVICE_ID) {
+      float angle = 0.0f;
+      if (encoder_can_is_fresh(500, &angle)) {
+        s_rx_data.rudder_angle_deg = (int16_t)angle;
+        s_rx_data.have_rudder = true;
+        with_lock(paint_rudder);
+      }
+    }
     break;
   }
   push_can_status();

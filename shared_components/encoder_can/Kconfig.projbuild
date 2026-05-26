@@ -1,0 +1,37 @@
+menu "UWA Jetski - Briterencoder CAN"
+
+    config ENCODER_DEVICE_ID
+        int "Encoder CAN device address (node ID)"
+        default 1
+        range 1 255
+        help
+            CAN node address of the Briterencoder. This is also the CAN frame
+            identifier used by the encoder. Factory default is 1.
+
+    config ENCODER_RESOLUTION
+        int "Encoder single-turn resolution (counts per revolution)"
+        default 1024
+        range 64 65536
+        help
+            Number of encoder counts per full revolution. Common values:
+            1024 (10-bit), 4096 (12-bit), 16384 (14-bit).
+            Must match the physical encoder model.
+
+    config ENCODER_AUTO_PERIOD_MS
+        int "Encoder auto-return period (ms)"
+        default 20
+        range 1 1000
+        help
+            How often the encoder sends position frames in auto-return mode.
+            20 ms = 50 Hz, matching the 50 Hz control loop.
+
+    config ENCODER_MAX_ANGLE_DEG
+        int "Rudder maximum deflection angle (degrees)"
+        default 45
+        range 5 180
+        help
+            Physical maximum rudder angle from centre in either direction.
+            Used to map encoder angle to a 0–100% rudder percentage for the
+            control loop (50% = centre).
+
+endmenu

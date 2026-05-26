@@ -165,6 +165,7 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
     lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
     lv_obj_set_style_text_opa(lbl, LV_OPA_COVER, 0);
     lv_label_set_recolor(lbl, true);
+    lv_obj_set_width(lbl, lv_pct(100));
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_SCROLL_CIRCULAR);
     s_status_ui.entries[idx].label = lbl;
     s_status_ui.entry_count++;
