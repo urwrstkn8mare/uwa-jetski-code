@@ -57,6 +57,13 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 .servo-live{display:text-align:center;font-size:36px;font-weight:700;color:#4ecca3;margin:8px 0}
 .servo-live .unit{font-size:16px;color:#888;font-weight:400}
 .cal-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px}
+.raw-pw-row{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px;background:#0f3460;border-radius:6px;flex-wrap:wrap}
+.raw-pw-row label{font-size:12px;color:#ffd93d;white-space:nowrap}
+.raw-pw-row input[type=range]{flex:1;accent-color:#ffd93d;min-width:120px}
+.raw-pw-row .raw-pw-val{font-size:13px;color:#ffd93d;font-family:monospace;min-width:60px;text-align:right}
+.raw-pw-row .capture-btns{display:flex;gap:4px;flex-wrap:wrap}
+.btn-capture{padding:3px 8px;font-size:11px;background:#e94560;color:#fff;border:none;border-radius:4px;cursor:pointer}
+.btn-capture:hover{background:#c73652}
 .cal-group label{display:block;font-size:11px;color:#888;margin-bottom:2px;text-transform:uppercase}
 .cal-group input{width:100%;padding:8px;border:1px solid #333;border-radius:4px;background:#1a1a2e;color:#e0e0e0;font-size:13px;font-family:monospace}
 .cal-group input:focus{outline:none;border-color:#4ecca3}
@@ -328,6 +335,16 @@ function loadServos() {
                     <div class="cal-group"><label>Min °</label><input type="number" id="cal-min-ag-${s.handle}" step="0.1" value="${s.cal.min_angle_deg}"></div>
                     <div class="cal-group"><label>Max °</label><input type="number" id="cal-max-ag-${s.handle}" step="0.1" value="${s.cal.max_angle_deg}"></div>
                 </div>
+                ${s.cal_mode ? `<div class="raw-pw-row" id="raw-pw-row-${s.handle}">
+                    <label>Raw PW µs</label>
+                    <input type="range" id="raw-pw-slider-${s.handle}" min="500" max="2500" step="1" value="${s.cal.zero_pw_us}" oninput="$('raw-pw-val-${s.handle}').textContent=Math.round(this.value)+' µs'" onchange="sendRawPw(${s.handle}, this.value)">
+                    <span class="raw-pw-val" id="raw-pw-val-${s.handle}">${Math.round(s.cal.zero_pw_us)} µs</span>
+                    <div class="capture-btns">
+                        <button class="btn-capture" onclick="captureRawPw(${s.handle},'min')">← Min</button>
+                        <button class="btn-capture" onclick="captureRawPw(${s.handle},'zero')">← Zero</button>
+                        <button class="btn-capture" onclick="captureRawPw(${s.handle},'max')">← Max</button>
+                    </div>
+                </div>` : ''}
                 <div class="save-row">
                     <button class="btn btn-save" style="min-width:100px" onclick="saveServoCal(${s.handle})">Save Cal</button>
                     <button class="btn ${s.cal_mode ? 'btn-cal-on' : 'btn-cal-off'}" style="min-width:100px" id="cal-btn-${s.handle}" onclick="toggleServoCal(${s.handle})">${s.cal_mode ? 'Exit CAL' : 'Calibrate'}</button>
@@ -383,7 +400,9 @@ function saveServoCal(handle) {
             min_angle_deg: min_ag,
             max_angle_deg: max_ag
         })
-    }).catch(() => {});
+    }).then(r => r.json()).then(d => {
+        if (d.error) { alert('Save failed: ' + d.error); } else { loadServos(); }
+    }).catch(() => { alert('Save failed: network error'); });
 }
 
 function toggleServoCal(handle) {
@@ -394,6 +413,23 @@ function toggleServoCal(handle) {
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({handle: handle, enabled: enabled})
     }).then(() => loadServos()).catch(() => {});
+}
+
+function captureRawPw(handle, field) {
+    const slider = $('raw-pw-slider-' + handle);
+    if (!slider) return;
+    const val = Math.round(Number(slider.value));
+    const map = {min: 'cal-min-pw-', zero: 'cal-zero-pw-', max: 'cal-max-pw-'};
+    const input = $(map[field] + handle);
+    if (input) input.value = val;
+}
+
+function sendRawPw(handle, pulse_us) {
+    fetch(API + '/api/servos/raw_pw', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({handle: handle, pulse_us: Math.round(Number(pulse_us))})
+    }).catch(() => {});
 }
 
 connectSSE();

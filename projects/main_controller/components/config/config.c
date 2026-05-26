@@ -99,9 +99,8 @@ static bool servo_calibration_is_valid(const servo_calibration_t *cal) {
     if (!(cal->min_pw_us < cal->zero_pw_us && cal->zero_pw_us < cal->max_pw_us)) {
         return false;
     }
-    if (!(cal->min_angle_deg < 0.0f && cal->max_angle_deg > 0.0f && cal->min_angle_deg < cal->max_angle_deg)) {
-        return false;
-    }
+    if (fabsf(cal->min_angle_deg - cal->max_angle_deg) < 1.0f) return false;
+    if (cal->min_angle_deg * cal->max_angle_deg > 0.0f) return false;
     return true;
 }
 

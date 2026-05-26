@@ -202,6 +202,7 @@ static esp_err_t api_get_servos(httpd_req_t *req) {
     offset += written;
     remaining -= written;
 
+    bool first = true;
     for (int i = 0; i < SERVO_MAX_INSTANCES && count > 0; i++) {
         servo_info_t info;
         if (!servo_drive_get_info_by_index(i, &info)) continue;
@@ -222,7 +223,7 @@ static esp_err_t api_get_servos(httpd_req_t *req) {
             "\"min_angle_deg\":%.2f,"
             "\"max_angle_deg\":%.2f}"
             "}",
-            (i > 0 && count > 1) ? "," : "",
+            first ? "" : ",",
             i, info.gpio,
             info.ready ? "true" : "false",
             info.simulated ? "true" : "false",
@@ -236,6 +237,7 @@ static esp_err_t api_get_servos(httpd_req_t *req) {
         if (written <= 0 || written >= remaining) break;
         offset += written;
         remaining -= written;
+        first = false;
         count--;
     }
 
@@ -296,8 +298,14 @@ static esp_err_t api_put_servo_calibration(httpd_req_t *req) {
 
     if (!any) return json_error_resp(req, "no calibration fields");
 
+    if (!(cal.min_pw_us < cal.zero_pw_us && cal.zero_pw_us < cal.max_pw_us))
+        return json_error_resp(req, "pw_us must satisfy min < zero < max");
+    if (fabsf(cal.min_angle_deg - cal.max_angle_deg) < 1.0f || cal.min_angle_deg * cal.max_angle_deg > 0.0f)
+        return json_error_resp(req, "angle range must span zero (one negative, one positive)");
+
     servo_drive_apply_cal((servo_channel_t)handle, &cal);
-    (void)config_save_servo_cal(handle, &cal);
+    esp_err_t save_err = config_save_servo_cal(handle, &cal);
+    if (save_err != ESP_OK) return json_error_resp(req, "NVS save failed");
 
     return json_ok_resp(req);
 }
@@ -329,6 +337,32 @@ static esp_err_t api_post_servo_cal_mode(httpd_req_t *req) {
     }
     servo_drive_set_cal_mode((servo_channel_t)handle, enabled);
 
+    return json_ok_resp(req);
+}
+
+static esp_err_t api_post_servo_raw_pw(httpd_req_t *req) {
+    size_t buf_sz = req->content_len;
+    if (buf_sz > 64) return json_error_resp(req, "payload too large");
+
+    char *buf = malloc(buf_sz + 1);
+    if (!buf) return json_error_resp(req, "no mem");
+
+    int ret = httpd_req_recv(req, buf, buf_sz);
+    if (ret <= 0) {
+        free(buf);
+        return json_error_resp(req, "recv failed");
+    }
+    buf[buf_sz] = 0;
+
+    int handle = (int)parse_number(buf, "\"handle\"");
+    float pulse_us = parse_float(buf, "\"pulse_us\"");
+    free(buf);
+
+    if (handle < 0 || handle >= SERVO_MAX_INSTANCES) {
+        return json_error_resp(req, "invalid handle");
+    }
+
+    servo_drive_set_raw_us((servo_channel_t)handle, pulse_us);
     return json_ok_resp(req);
 }
 
@@ -538,6 +572,7 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/servos",   .method = HTTP_GET,  .handler = api_get_servos},
     {.uri = "/api/servos",   .method = HTTP_PUT,  .handler = api_put_servo_calibration},
     {.uri = "/api/servos",   .method = HTTP_POST, .handler = api_post_servo_cal_mode},
+    {.uri = "/api/servos/raw_pw", .method = HTTP_POST, .handler = api_post_servo_raw_pw},
     {.uri = "/api/config",   .method = HTTP_GET,  .handler = api_get_config},
     {.uri = "/api/config",   .method = HTTP_PUT,  .handler = api_put_config},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},

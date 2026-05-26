@@ -58,20 +58,23 @@ static bool cal_is_valid(const servo_calibration_t *cal) {
     if (!isfinite(cal->min_pw_us) || !isfinite(cal->zero_pw_us) || !isfinite(cal->max_pw_us) ||
         !isfinite(cal->min_angle_deg) || !isfinite(cal->max_angle_deg)) return false;
     if (!(cal->min_pw_us < cal->zero_pw_us && cal->zero_pw_us < cal->max_pw_us)) return false;
-    if (!(cal->min_angle_deg < 0.0f && cal->max_angle_deg > 0.0f)) return false;
+    if (fabsf(cal->min_angle_deg - cal->max_angle_deg) < 1.0f) return false;
+    if (cal->min_angle_deg * cal->max_angle_deg > 0.0f) return false;
     return true;
 }
 
 static float deg_to_pulse_us(const servo_calibration_t *cal, float deg) {
-    deg = clamp_float(deg, cal->min_angle_deg, cal->max_angle_deg);
-    if (deg <= 0.0f) {
-        float span = 0.0f - cal->min_angle_deg;
-        if (span <= 0.0f) return cal->zero_pw_us;
-        return cal->min_pw_us + (cal->zero_pw_us - cal->min_pw_us) * ((deg - cal->min_angle_deg) / span);
+    float lo = fminf(cal->min_angle_deg, cal->max_angle_deg);
+    float hi = fmaxf(cal->min_angle_deg, cal->max_angle_deg);
+    deg = clamp_float(deg, lo, hi);
+
+    /* Pick which anchor to interpolate toward based on sign of deg vs. anchor.
+     * Handles both normal (min<0<max) and inverted (min>0>max) configurations. */
+    if (cal->min_angle_deg != 0.0f && ((deg > 0.0f) == (cal->min_angle_deg > 0.0f))) {
+        return cal->zero_pw_us + (deg / cal->min_angle_deg) * (cal->min_pw_us - cal->zero_pw_us);
     }
-    float span = cal->max_angle_deg;
-    if (span <= 0.0f) return cal->zero_pw_us;
-    return cal->zero_pw_us + (cal->max_pw_us - cal->zero_pw_us) * (deg / span);
+    if (cal->max_angle_deg == 0.0f) return cal->zero_pw_us;
+    return cal->zero_pw_us + (deg / cal->max_angle_deg) * (cal->max_pw_us - cal->zero_pw_us);
 }
 
 static uint32_t pulse_us_to_duty(uint32_t pulse_us) {
@@ -265,10 +268,24 @@ esp_err_t servo_drive_close(servo_channel_t h) {
 
 void servo_drive_set_degrees(servo_channel_t h, float deg) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
-    s_instances[h].cmd_deg = clamp_float(deg,
-                                          s_instances[h].cal.min_angle_deg,
-                                          s_instances[h].cal.max_angle_deg);
+    float lo = fminf(s_instances[h].cal.min_angle_deg, s_instances[h].cal.max_angle_deg);
+    float hi = fmaxf(s_instances[h].cal.min_angle_deg, s_instances[h].cal.max_angle_deg);
+    s_instances[h].cmd_deg = clamp_float(deg, lo, hi);
     servo_drive_push_instance((int)h);
+}
+
+void servo_drive_set_raw_us(servo_channel_t h, float pulse_us) {
+    if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
+    if (!s_instances[h].cal_mode) return;
+    if (pulse_us < 500.0f) pulse_us = 500.0f;
+    if (pulse_us > 2500.0f) pulse_us = 2500.0f;
+    if (!s_instances[h].simulated) {
+        uint32_t duty = pulse_us_to_duty((uint32_t)lroundf(pulse_us));
+        (void)ledc_set_duty(s_speed_mode, s_instances[h].ledc_ch, duty);
+        (void)ledc_update_duty(s_speed_mode, s_instances[h].ledc_ch);
+    }
+    servo_drive_update_status();
+    if (s_change_cb) s_change_cb((int)h);
 }
 
 void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg) {

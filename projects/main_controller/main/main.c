@@ -23,8 +23,8 @@ static const char *TAG = "main";
 
 static servo_channel_t s_servo_left;
 static servo_channel_t s_servo_right;
-static const int SERVO_GPIO_LEFT  = 1;
-static const int SERVO_GPIO_RIGHT = 2;
+static const int SERVO_GPIO_LEFT  = 10;
+static const int SERVO_GPIO_RIGHT = 3;
 
 /* Latest joystick values from aux controller (0..100, 50 = centre) */
 static volatile uint16_t s_joy_bank_pct  = 50;
@@ -150,12 +150,14 @@ static void ctrl_task(void *arg) {
         control_disarm();
       }
 
-      float bank_norm  = ((float)s_joy_bank_pct  / 50.0f) - 1.0f;
-      float pitch_norm = ((float)s_joy_pitch_pct / 50.0f) - 1.0f;
-      const float MAX_JOY_DEG = 15.0f;
-      float pitch_cmd = pitch_norm * MAX_JOY_DEG;
-      float diff_cmd  = bank_norm  * MAX_JOY_DEG;
-      set_elevons_direct(pitch_cmd + diff_cmd, pitch_cmd - diff_cmd);
+      if (!servo_drive_any_cal_mode()) {
+        float bank_norm  = ((float)s_joy_bank_pct  / 50.0f) - 1.0f;
+        float pitch_norm = ((float)s_joy_pitch_pct / 50.0f) - 1.0f;
+        const float MAX_JOY_DEG = 15.0f;
+        float pitch_cmd = pitch_norm * MAX_JOY_DEG;
+        float diff_cmd  = bank_norm  * MAX_JOY_DEG;
+        set_elevons_direct(pitch_cmd + diff_cmd, pitch_cmd - diff_cmd);
+      }
 
       perf_tick(&s_disarmed_perf, (uint32_t)(esp_timer_get_time() - t0), false);
     }

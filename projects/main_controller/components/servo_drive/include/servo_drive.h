@@ -30,6 +30,8 @@ esp_err_t servo_drive_close(servo_channel_t h);
 
 void servo_drive_set_degrees(servo_channel_t h, float deg);
 
+void servo_drive_set_raw_us(servo_channel_t h, float pulse_us);
+
 void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg);
 
 void servo_drive_set_cal_mode(servo_channel_t h, bool on);
