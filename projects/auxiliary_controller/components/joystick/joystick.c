@@ -24,11 +24,24 @@ static int      s_pitch_raw;
 /* Set by CAN RX when main controller reports armed state */
 static volatile bool s_armed;
 
-static uint16_t raw_to_pct(int raw, int mn, int mx) {
-    if (raw < mn) raw = mn;
-    if (raw > mx) raw = mx;
-    if (mx <= mn) return 50u;
-    return (uint16_t)(((int64_t)(raw - mn) * 100) / (mx - mn));
+static uint16_t raw_to_pct(int raw, int mn, int zero, int mx) {
+    int lo = mn < mx ? mn : mx;
+    int hi = mn < mx ? mx : mn;
+    if (raw < lo) raw = lo;
+    if (raw > hi) raw = hi;
+    if (raw == zero) return 50u;
+
+    /* Determine which half based on travel direction (mn<mx = normal, mn>mx = inverted) */
+    bool lower_half = (mn < mx) ? (raw < zero) : (raw > zero);
+    if (lower_half) {
+        int span = zero - mn;
+        if (span == 0) return 50u;
+        return (uint16_t)(((int64_t)(raw - mn) * 50) / span);
+    } else {
+        int span = mx - zero;
+        if (span == 0) return 50u;
+        return (uint16_t)(50u + (uint16_t)(((int64_t)(raw - zero) * 50) / span));
+    }
 }
 
 static esp_err_t configure_channel(adc_channel_t ch) {
@@ -49,7 +62,7 @@ static void joystick_tx_task(void *arg) {
             int raw = 0;
             if (adc_oneshot_read(s_adc, bank_ch, &raw) == ESP_OK) {
                 s_bank_raw = raw;
-                s_bank_pct = raw_to_pct(raw, CONFIG_JOYSTICK_BANK_ADC_MIN, CONFIG_JOYSTICK_BANK_ADC_MAX);
+                s_bank_pct = raw_to_pct(raw, CONFIG_JOYSTICK_BANK_ADC_MIN, CONFIG_JOYSTICK_BANK_ADC_ZERO, CONFIG_JOYSTICK_BANK_ADC_MAX);
             }
         }
 
@@ -59,7 +72,7 @@ static void joystick_tx_task(void *arg) {
             int raw = 0;
             if (adc_oneshot_read(s_adc, pitch_ch, &raw) == ESP_OK) {
                 s_pitch_raw = raw;
-                s_pitch_pct = raw_to_pct(raw, CONFIG_JOYSTICK_PITCH_ADC_MIN, CONFIG_JOYSTICK_PITCH_ADC_MAX);
+                s_pitch_pct = raw_to_pct(raw, CONFIG_JOYSTICK_PITCH_ADC_MIN, CONFIG_JOYSTICK_PITCH_ADC_ZERO, CONFIG_JOYSTICK_PITCH_ADC_MAX);
             }
         }
 

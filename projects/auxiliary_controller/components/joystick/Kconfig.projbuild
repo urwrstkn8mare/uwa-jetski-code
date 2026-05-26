@@ -18,6 +18,14 @@ menu "UWA Jetski - Joystick potentiometers"
         int "Bank pot raw ADC at 0% (full left)"
         default 0
 
+    config JOYSTICK_BANK_ADC_ZERO
+        int "Bank pot raw ADC at 50% (centre)"
+        default 2047
+        help
+            ADC reading when the stick is centred. Always maps to exactly 50%.
+            The range below this scales to 0..50% and above scales to 50..100%,
+            so an off-centre physical zero does not introduce a dead-band or offset.
+
     config JOYSTICK_BANK_ADC_MAX
         int "Bank pot raw ADC at 100% (full right)"
         default 4095
@@ -34,6 +42,14 @@ menu "UWA Jetski - Joystick potentiometers"
     config JOYSTICK_PITCH_ADC_MIN
         int "Pitch pot raw ADC at 0% (full down)"
         default 0
+
+    config JOYSTICK_PITCH_ADC_ZERO
+        int "Pitch pot raw ADC at 50% (centre)"
+        default 2047
+        help
+            ADC reading when the stick is centred. Always maps to exactly 50%.
+            The range below this scales to 0..50% and above scales to 50..100%,
+            so an off-centre physical zero does not introduce a dead-band or offset.
 
     config JOYSTICK_PITCH_ADC_MAX
         int "Pitch pot raw ADC at 100% (full up)"
