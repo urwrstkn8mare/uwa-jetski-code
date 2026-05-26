@@ -201,8 +201,9 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     break;
   }
   default:
-    /* Check if this is an encoder frame */
-    if (header_id == (uint32_t)CONFIG_ENCODER_DEVICE_ID) {
+    /* Check if this is an encoder frame (command-response on device_id or auto-feedback on 0x180+device_id) */
+    if (header_id == (uint32_t)CONFIG_ENCODER_DEVICE_ID ||
+        header_id == (uint32_t)(0x180u + CONFIG_ENCODER_DEVICE_ID)) {
       float angle = 0.0f;
       if (encoder_can_is_fresh(500, &angle)) {
         s_rx_data.rudder_angle_deg = (int16_t)angle;
