@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "lvgl.h"
+#include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -95,24 +96,24 @@ void status_ui_stop(void) {
 }
 
 void status_ui_update(const char *tag, const char *fmt, ...) {
-    if (!s_status_ui.initialized || tag == NULL || fmt == NULL) return;
+    assert(tag != NULL);
+    if (!s_status_ui.initialized) return; // just do nothing if status_ui aint ready
 
-    /* Format into a STACK-LOCAL buffer before acquiring the lock.
-     * The old shared s_status_ui.scratch was formatted outside the lock,
-     * so two concurrent callers would race and one would render the other's
-     * text under its own tag. */
     char buf[TEXT_CAP];
     {
         va_list args;
         va_start(args, fmt);
         int n = vsnprintf(buf, sizeof(buf), fmt, args);
         va_end(args);
-        if (n < 0) return;
+        if (n < 0) {
+            ESP_LOGW(TAG, "Error during vsnprintf");
+            return;
+        }
     }
 
     const int64_t now = esp_timer_get_time();
-    size_t idx = s_status_ui.entry_count;
 
+    size_t idx = s_status_ui.entry_count;
     for (size_t i = 0; i < s_status_ui.entry_count; i++) {
         if (strncmp(s_status_ui.entries[i].tag, tag, TAG_LEN) == 0) {
             idx = i;
@@ -120,7 +121,7 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
         }
     }
 
-    if (idx == s_status_ui.entry_count && idx >= MAX_ENTRIES) {
+    if (idx >= MAX_ENTRIES) {
         ESP_LOGW(TAG, "Too many status tags, ignoring \"%s\"", tag);
         return;
     }
@@ -133,7 +134,7 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
         }
     }
 
-    if (s_status_ui.lock_cb) s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
+    if (s_status_ui.lock_cb) s_status_ui.lock_cb(0);
 
     if (idx >= s_status_ui.entry_count) {
         snprintf(s_status_ui.entries[idx].tag, TAG_LEN, "%s", tag);

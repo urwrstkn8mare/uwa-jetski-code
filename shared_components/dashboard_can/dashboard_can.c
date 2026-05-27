@@ -107,14 +107,6 @@ static void paint_setpoints(void) {
                                       (int32_t)s_rx_data.roll_setpoint_deg);
 }
 
-static void push_can_status(void) {
-  char buf[96];
-  int n = can_snprintf_board_status(buf, sizeof(buf));
-  if (n > 0) {
-    status_ui_update("CAN", "%s", buf);
-  }
-}
-
 static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
   (void)timestamp;
   if (buffer == NULL) {
@@ -208,7 +200,6 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     }
     break;
   }
-  push_can_status();
 }
 
 esp_err_t dashboard_can_attach(dashboard_can_lock_fn_t lock, dashboard_can_unlock_fn_t unlock,

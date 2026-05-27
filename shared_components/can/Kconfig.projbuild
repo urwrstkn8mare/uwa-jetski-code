@@ -21,15 +21,6 @@ menu "UWA Jetski - CAN configuration"
         help
             Number of frames that can be queued for transmission before blocking/dropping
 
-    config CAN_SELF_TEST
-        bool "TWAI self-test (bench / no peer ACK)"
-        default n
-        help
-            Enables TWAI self-test mode: transmissions do not require an ACK from another node.
-            Use on the bench when the transceiver is not on a terminated bus with a peer,
-            otherwise continuous ACK errors can flood the TWAI ISR and trip the interrupt watchdog.
-            Disable on the vehicle when talking to other controllers on CAN.
-
     config CAN_SKIP_HW
         bool "Skip TWAI driver (no CAN at runtime)"
         default n
@@ -37,13 +28,5 @@ menu "UWA Jetski - CAN configuration"
             Do not initialize the TWAI controller. Use for USB-only bring-up when no CAN transceiver
             is wired, or to avoid pin/peripheral conflicts. Application treats CAN as unavailable
             (same as failed init).
-
-    config CAN_STATUS_LOG_PERIOD_MS
-        int "Periodic CAN serial status log interval (ms, 0 disables)"
-        default 2500
-        range 0 600000
-        help
-            Emits one ESP-IDF log line summarising TWAI state, counters, pins, and TX queue totals.
-            Mirrors the readability of serial/debug output from bench CAN bring-up demos.
 
 endmenu

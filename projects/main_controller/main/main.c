@@ -44,11 +44,6 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   }
 }
 
-static void on_can_status(const char *line) {
-  status_ui_update("CAN", "%s", line);
-}
-
-
 typedef struct {
   uint32_t min_us;
   uint32_t max_us;
@@ -171,7 +166,6 @@ void app_main(void) {
   if (can_init(on_can_rx) != ESP_OK) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
-  can_register_status_cb(on_can_status);
 
   encoder_can_init();
 

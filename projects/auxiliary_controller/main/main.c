@@ -11,10 +11,6 @@
 
 static const char *TAG = "aux_main";
 
-static void on_can_status(const char *line) {
-  status_ui_update("CAN", "%s", line);
-}
-
 void app_main(void) {
   tdisplays3_handle_t disp_board;
   if (tdisplays3_init(&disp_board) == ESP_OK) {
@@ -41,7 +37,6 @@ void app_main(void) {
   if (can_init(NULL) != ESP_OK) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
-  can_register_status_cb(on_can_status);
 
   gps_init();
   if (joystick_init() != ESP_OK) {
