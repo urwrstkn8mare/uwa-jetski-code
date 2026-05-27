@@ -1,12 +1,5 @@
 menu "UWA Jetski - Joystick potentiometers"
 
-    config JOYSTICK_SKIP_HW
-        bool "Disable joystick hardware init"
-        default n
-        help
-            Skip ADC and joystick task initialisation. Useful for builds without
-            physical potentiometers wired.
-
     comment "Bank axis (left/right — controls roll via elevons)"
 
     config JOYSTICK_BANK_GPIO
