@@ -21,9 +21,6 @@ static uint16_t s_pitch_pct;
 static int      s_bank_raw;
 static int      s_pitch_raw;
 
-/* Set by CAN RX when main controller reports armed state */
-static volatile bool s_armed;
-
 static uint16_t raw_to_pct(int raw, int mn, int zero, int mx) {
     int lo = mn < mx ? mn : mx;
     int hi = mn < mx ? mx : mn;
@@ -76,24 +73,16 @@ static void joystick_tx_task(void *arg) {
             }
         }
 
-        /* Only transmit when not armed — control task takes over when armed */
-        if (!s_armed) {
-            can_joystick_t joy = {
-                .bank_pct  = s_bank_pct,
-                .pitch_pct = s_pitch_pct,
-            };
-            (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));
+        can_joystick_t joy = {
+            .bank_pct  = s_bank_pct,
+            .pitch_pct = s_pitch_pct,
+        };
+        (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));
 
-            if ((loop % 20u) == 0u) {
-                status_ui_update("Joystick",
-                                 "bank=%u%% pitch=%u%% raw_b=%d raw_p=%d",
-                                 (unsigned)s_bank_pct, (unsigned)s_pitch_pct,
-                                 s_bank_raw, s_pitch_raw);
-            }
-        } else {
-            if ((loop % 20u) == 0u) {
-                status_ui_update("Joystick", "ARMED — suppressed");
-            }
+        if ((loop % 20u) == 0u) {
+            status_ui_update("Joystick", "bank=%u%% pitch=%u%% raw_b=%d raw_p=%d",
+                             (unsigned)s_bank_pct, (unsigned)s_pitch_pct,
+                             s_bank_raw, s_pitch_raw);
         }
 
         loop++;
@@ -101,13 +90,6 @@ static void joystick_tx_task(void *arg) {
     }
 }
 
-void joystick_on_can_rx(const uint8_t buffer[8], uint32_t header_id) {
-    if (header_id == CAN_ID_CTRL_STATUS && buffer != NULL) {
-        can_ctrl_status_t cs;
-        memcpy(&cs, buffer, sizeof(cs));
-        s_armed = (cs.flags & 0x01u) != 0u;
-    }
-}
 
 esp_err_t joystick_init(void) {
 #if CONFIG_JOYSTICK_SKIP_HW

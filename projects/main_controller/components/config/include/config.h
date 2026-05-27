@@ -20,8 +20,6 @@ typedef struct {
     int32_t roll_kd;
     int16_t rudder_exponent_x100;
     int16_t rudder_max_roll_deg;
-    int16_t arm_threshold_pct;
-    int16_t disarm_threshold_pct;
     /* When false, height PID is bypassed and the joystick pitch axis sets the
      * pitch target directly (range ±(elevon_max_angle - elevon_max_diff_deg)). */
     bool    height_enabled;
@@ -57,8 +55,6 @@ typedef struct {
 
 #define CONTROL_DEFAULT_RUDDER_EXPONENT_X100  200
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
-#define CONTROL_DEFAULT_ARM_THRESHOLD_PCT     50
-#define CONTROL_DEFAULT_DISARM_THRESHOLD_PCT  30
 #define CONTROL_DEFAULT_HEIGHT_ENABLED        true
 #define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   5
 

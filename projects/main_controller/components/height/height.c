@@ -112,7 +112,7 @@ static void height_task(void *pvParameters) {
     for (;;) {
         uint16_t distance_mm = 0;
         ret = a02yyuw_read_distance(&dev, &distance_mm);
-        if (ret == ESP_OK) {
+        if (ret == ESP_OK && distance_mm >= A02YYUW_MIN_RANGE && distance_mm <= A02YYUW_MAX_RANGE) {
             int32_t height_cm = (int32_t)(distance_mm / 10);
             if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
                 s_height_cm = height_cm;

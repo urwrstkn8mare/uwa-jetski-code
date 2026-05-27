@@ -149,18 +149,11 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div class="cfg-group"></div>
 </div>
 </div>
+
 <div class="cfg-section">
-<h4>Arming</h4>
+<h4>Elevon Limits</h4>
 <div class="cfg-grid">
-<div class="cfg-group"><label>Arm threshold %</label><input type="number" id="cfg_arm_threshold_pct" step="1"></div>
-<div class="cfg-group"><label>Disarm threshold %</label><input type="number" id="cfg_disarm_threshold_pct" step="1"></div>
-<div class="cfg-group"></div>
-</div>
-</div>
-<div class="cfg-section">
-<h4>Joystick</h4>
-<div class="cfg-grid">
-<div class="cfg-group"><label>Max pitch ° (joystick)</label><input type="number" id="cfg_joy_pitch_max_deg" step="1"></div>
+<div class="cfg-group"><label>Max diff ° (roll authority)</label><input type="number" id="cfg_elevon_max_diff_deg" step="1"></div>
 <div class="cfg-group"></div>
 <div class="cfg-group"></div>
 </div>
@@ -206,10 +199,10 @@ function connectSSE() {
             $('heightValue').textContent = d.target_cm;
         }
         if ('elevon_left_deg' in d) {
-            $('tElevonL').textContent = Number(d.elevon_left_deg).toFixed(1) + '°';
+            $('tElevonL').textContent = Number(d.elevon_left_deg).toFixed(2) + '°';
         }
         if ('elevon_right_deg' in d) {
-            $('tElevonR').textContent = Number(d.elevon_right_deg).toFixed(1) + '°';
+            $('tElevonR').textContent = Number(d.elevon_right_deg).toFixed(2) + '°';
         }
         if ('height_enabled' in d) {
             $('chkHeightEnabled').checked = d.height_enabled;
@@ -274,8 +267,7 @@ $('btnSaveConfig').addEventListener('click', () => {
         'pitch_kp','pitch_ki','pitch_kd',
         'roll_kp','roll_ki','roll_kd',
         'rudder_exponent_x100','rudder_max_roll_deg',
-        'arm_threshold_pct','disarm_threshold_pct',
-        'joy_pitch_max_deg'
+        'elevon_max_diff_deg'
     ];
     const data = {};
     fields.forEach(f => { data[f] = parseFloat($('cfg_'+f).value) || 0; });
@@ -300,8 +292,7 @@ function loadConfig() {
             'pitch_kp','pitch_ki','pitch_kd',
             'roll_kp','roll_ki','roll_kd',
             'rudder_exponent_x100','rudder_max_roll_deg',
-            'arm_threshold_pct','disarm_threshold_pct',
-            'joy_pitch_max_deg'
+            'elevon_max_diff_deg'
         ];
         fields.forEach(f => {
             const el = $('cfg_'+f);
@@ -327,7 +318,7 @@ function loadServos() {
                     <h4>Servo GPIO ${s.gpio} (handle ${s.handle})</h4>
                     <span class="servo-badge ${s.simulated ? 'sim' : (s.cal_mode ? 'cal' : 'hw')}">${s.simulated ? 'SIM' : (s.cal_mode ? 'CAL' : 'HW')}</span>
                 </div>
-                <div class="servo-live"><span id="servo-deg-${s.handle}">${s.cmd_deg !== undefined ? Number(s.cmd_deg).toFixed(1) : '--'}</span><span class="unit"> °</span></div>
+                <div class="servo-live"><span id="servo-deg-${s.handle}">${s.cmd_deg !== undefined ? Number(s.cmd_deg).toFixed(2) : '--'}</span><span class="unit"> °</span></div>
                 <div class="cal-grid">
                     <div class="cal-group"><label>Min PW µs</label><input type="number" id="cal-min-pw-${s.handle}" step="0.1" value="${s.cal.min_pw_us}"></div>
                     <div class="cal-group"><label>Zero PW µs</label><input type="number" id="cal-zero-pw-${s.handle}" step="0.1" value="${s.cal.zero_pw_us}"></div>
@@ -366,7 +357,7 @@ function updateServoCard(handle, data) {
 
     if (data.cmd_deg !== undefined) {
         const degEl = $('servo-deg-' + handle);
-        if (degEl) degEl.textContent = Number(data.cmd_deg).toFixed(1);
+        if (degEl) degEl.textContent = Number(data.cmd_deg).toFixed(2);
     }
 
     const badge = card.querySelector('.servo-badge');

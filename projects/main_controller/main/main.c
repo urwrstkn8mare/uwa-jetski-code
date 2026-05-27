@@ -48,24 +48,6 @@ static void on_can_status(const char *line) {
   status_ui_update("CAN", "%s", line);
 }
 
-/* Map encoder angle to rudder percentage (0..100, 50 = centre). */
-static uint16_t encoder_angle_to_pct(float angle_deg) {
-  const float max_ang = (float)CONFIG_ENCODER_MAX_ANGLE_DEG;
-  float norm = angle_deg / max_ang;
-  if (norm >  1.0f) norm =  1.0f;
-  if (norm < -1.0f) norm = -1.0f;
-  return (uint16_t)((norm + 1.0f) * 50.0f);
-}
-
-/* Set both elevons directly (manual / unarmed mode). */
-static void set_elevons_direct(float left_deg, float right_deg) {
-  if (s_servo_left != SERVO_CHANNEL_INVALID) {
-    servo_drive_set_degrees(s_servo_left, left_deg);
-  }
-  if (s_servo_right != SERVO_CHANNEL_INVALID) {
-    servo_drive_set_degrees(s_servo_right, right_deg);
-  }
-}
 
 typedef struct {
   uint32_t min_us;
@@ -118,11 +100,8 @@ static void ctrl_task(void *arg) {
     if (control_is_armed() && !servo_drive_any_cal_mode()) {
       /* ── Armed: full PID stabilisation loop ── */
 
-      uint16_t rudder_pct = 50;
-      float encoder_angle = 0.0f;
-      if (encoder_can_is_fresh(500, &encoder_angle)) {
-        rudder_pct = encoder_angle_to_pct(encoder_angle);
-      }
+      float rudder_angle = 0.0f;
+      encoder_can_is_fresh(500, &rudder_angle);
 
       float pitch = 0.0f, roll = 0.0f, yaw = 0.0f;
       if (imu_is_ready()) {
@@ -133,7 +112,7 @@ static void ctrl_task(void *arg) {
       height_get_cm(&height_cm);
 
       control_output_t out;
-      control_update((int16_t)height_cm, pitch, roll, rudder_pct,
+      control_update((int16_t)height_cm, pitch, roll, rudder_angle,
                      s_joy_pitch_pct, &out);
 
       if (s_servo_left != SERVO_CHANNEL_INVALID) {
@@ -146,29 +125,15 @@ static void ctrl_task(void *arg) {
       perf_tick(&s_armed_perf, (uint32_t)(esp_timer_get_time() - t0), true);
 
     } else {
-      /* ── Disarmed: joystick → elevons directly ── */
+      /* ── Disarmed: hold servos at neutral ── */
 
       if (servo_drive_any_cal_mode() && control_is_armed()) {
         control_disarm();
       }
 
       if (!servo_drive_any_cal_mode()) {
-        control_config_t ccfg;
-        control_get_cfg(&ccfg);
-        float max_diff   = (float)ccfg.elevon_max_diff_deg;
-        float max_center = control_get_elevon_max_angle() - max_diff;
-        if (max_center < 0.0f) max_center = 0.0f;
-
-        float bank_norm  = ((float)s_joy_bank_pct  / 50.0f) - 1.0f;
-        float pitch_norm = ((float)s_joy_pitch_pct / 50.0f) - 1.0f;
-        if (bank_norm  >  1.0f) bank_norm  =  1.0f;
-        if (bank_norm  < -1.0f) bank_norm  = -1.0f;
-        if (pitch_norm >  1.0f) pitch_norm =  1.0f;
-        if (pitch_norm < -1.0f) pitch_norm = -1.0f;
-
-        float diff_cmd  = bank_norm  * max_diff;
-        float pitch_cmd = pitch_norm * max_center;
-        set_elevons_direct(pitch_cmd + diff_cmd, pitch_cmd - diff_cmd);
+        if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  0.0f);
+        if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, 0.0f);
       }
 
       can_ctrl_status_t cs = { .flags = 0u };
@@ -228,8 +193,8 @@ void app_main(void) {
 
   /* Derive effective servo angle range from calibration: tighter of the two channels,
    * using the smaller of |min_angle| and max_angle for each. */
-  float range0 = fminf(fabsf(cfg.servo.channel[0].min_angle_deg), cfg.servo.channel[0].max_angle_deg);
-  float range1 = fminf(fabsf(cfg.servo.channel[1].min_angle_deg), cfg.servo.channel[1].max_angle_deg);
+  float range0 = fminf(fabsf(cfg.servo.channel[0].min_angle_deg), fabsf(cfg.servo.channel[0].max_angle_deg));
+  float range1 = fminf(fabsf(cfg.servo.channel[1].min_angle_deg), fabsf(cfg.servo.channel[1].max_angle_deg));
   control_set_elevon_max_angle(fminf(range0, range1));
   if (s_servo_left == SERVO_CHANNEL_INVALID && s_servo_right == SERVO_CHANNEL_INVALID) {
     ESP_LOGW(TAG, "All servos in simulated mode");

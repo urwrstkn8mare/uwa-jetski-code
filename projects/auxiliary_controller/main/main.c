@@ -11,11 +11,6 @@
 
 static const char *TAG = "aux_main";
 
-static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
-  (void)timestamp;
-  joystick_on_can_rx(buffer, header_id);
-}
-
 static void on_can_status(const char *line) {
   status_ui_update("CAN", "%s", line);
 }
@@ -43,7 +38,7 @@ void app_main(void) {
     ESP_LOGW(TAG, "tdisplays3_init failed — serial only");
   }
 
-  if (can_init(on_can_rx) != ESP_OK) {
+  if (can_init(NULL) != ESP_OK) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
   can_register_status_cb(on_can_status);

@@ -130,7 +130,7 @@ static void imu_reader_task(void *arg) {
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;
                     xSemaphoreGive(s_mutex);
-                    status_ui_update("IMU", "P:%.1f R:%.1f Y:%.1f deg",
+                    status_ui_update("IMU", "P:%.2f R:%.2f Y:%.2f deg",
                                      (double)pitch, (double)roll, (double)yaw);
                     can_attitude_t att = {
                         .pitch_deg = (int16_t)lroundf(pitch),

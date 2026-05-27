@@ -109,7 +109,7 @@ static void servo_drive_update_status(void) {
         return;
     }
     const char *mode = cal > 0 ? "CAL" : (hw > 0 ? "HW" : "SIM");
-    status_ui_update("Servo", "%s %d/%d L=%.1f R=%.1f", mode, hw + sim, total, d0, d1);
+    status_ui_update("Servo", "%s %d/%d L=%.2f R=%.2f", mode, hw + sim, total, d0, d1);
 }
 
 static void servo_drive_push_instance(int idx) {

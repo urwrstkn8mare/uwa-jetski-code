@@ -1040,7 +1040,7 @@ static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t
 
   for (uint32_t i = 0; i < ATTITUDE_TICK_COUNT; i++) {
     char txt[8];
-    snprintf(txt, sizeof(txt), "%d", (int)s_attitude_ticks[i]);
+    snprintf(txt, sizeof(txt), "%.2f", (double)s_attitude_ticks[i]);
     card.pitch_marks[i] = create_pitch_label(card.root, txt);
   }
 
@@ -1051,13 +1051,13 @@ static attitude_card_t create_attitude_card(lv_obj_t *parent, int32_t w, int32_t
   lv_obj_align(card.heading_label, LV_ALIGN_TOP_MID, 0, 6);
 
   const lv_font_t *att_small = get_sized_font(h / 18, 400);
-  card.roll_label = add_simple_label(card.root, "ROLL +0.0 deg", att_small,
-                                      lv_color_white(), (lv_opa_t)(255 * 0.90));
+  card.roll_label = add_simple_label(card.root, "ROLL +0.00 deg", att_small,
+                                       lv_color_white(), (lv_opa_t)(255 * 0.90));
   lv_obj_add_flag(card.roll_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.roll_label, LV_ALIGN_BOTTOM_LEFT, 8, -6);
 
-  card.pitch_label = add_simple_label(card.root, "PITCH +0.0 deg", att_small,
-                                       lv_color_white(), (lv_opa_t)(255 * 0.90));
+  card.pitch_label = add_simple_label(card.root, "PITCH +0.00 deg", att_small,
+                                        lv_color_white(), (lv_opa_t)(255 * 0.90));
   lv_obj_add_flag(card.pitch_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.pitch_label, LV_ALIGN_BOTTOM_RIGHT, -8, -6);
 
@@ -1133,12 +1133,12 @@ static void attitude_card_set_val(attitude_card_t *card, int roll_deg,
   snprintf(txt, sizeof(txt), "YAW %03d", (int)heading);
   lv_label_set_text(card->heading_label, txt);
 
-  snprintf(txt, sizeof(txt), "ROLL %+d", roll_deg);
+  snprintf(txt, sizeof(txt), "ROLL %+0.2f deg", (double)roll_deg);
   lv_label_set_text(card->roll_label, txt);
   lv_obj_set_style_text_color(card->roll_label,
                               roll_clamped ? lv_color_hex(0xFF0000) : lv_color_white(), 0);
 
-  snprintf(txt, sizeof(txt), "PITCH %+d", pitch_deg);
+  snprintf(txt, sizeof(txt), "PITCH %+0.2f deg", (double)pitch_deg);
   lv_label_set_text(card->pitch_label, txt);
   lv_obj_set_style_text_color(card->pitch_label,
                               pitch_clamped ? lv_color_hex(0xFF0000) : lv_color_white(), 0);
@@ -1332,7 +1332,7 @@ static control_surface_card_t create_control_surface_card(
   }
 
   const lv_font_t *vf = get_sized_font(h / 9, 700);
-  card.value_label = add_simple_label(card.root, "0 deg", vf,
+  card.value_label = add_simple_label(card.root, "0.00 deg", vf,
                                        lv_color_white(), LV_OPA_COVER);
   lv_obj_add_flag(card.value_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
   lv_obj_align(card.value_label, LV_ALIGN_BOTTOM_MID, 0, -6);
@@ -1346,7 +1346,7 @@ static void control_surface_card_set_val(control_surface_card_t *card,
   }
 
   char txt[16];
-  snprintf(txt, sizeof(txt), "%d deg", angle_deg);
+  snprintf(txt, sizeof(txt), "%0.2f deg", (double)angle_deg);
   lv_label_set_text(card->value_label, txt);
   if (card->bar != NULL) {
     lv_bar_set_value(card->bar, angle_deg, LV_ANIM_OFF);
@@ -1538,12 +1538,12 @@ void dashboard_ui_set_attitude_setpoints(int32_t pitch_deg, int32_t roll_deg) {
   attitude_card_redraw(card);
   if (card->pitch_sp_label) {
     char txt[16];
-    snprintf(txt, sizeof(txt), "SP_P %+d", (int)pitch_deg);
+    snprintf(txt, sizeof(txt), "SP_P %+0.2f", (double)pitch_deg);
     lv_label_set_text(card->pitch_sp_label, txt);
   }
   if (card->roll_sp_label) {
     char txt[16];
-    snprintf(txt, sizeof(txt), "SP_R %+d", (int)roll_deg);
+    snprintf(txt, sizeof(txt), "SP_R %+0.2f", (double)roll_deg);
     lv_label_set_text(card->roll_sp_label, txt);
   }
   if (s_dashboard_ui.unlock_cb) {

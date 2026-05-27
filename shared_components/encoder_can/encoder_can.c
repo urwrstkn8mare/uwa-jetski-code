@@ -130,7 +130,7 @@ void encoder_can_on_rx(const uint8_t buffer[8], uint32_t header_id) {
     s_last_us   = esp_timer_get_time();
     xSemaphoreGive(s_mx);
 
-    status_ui_update("Encoder", "%.1f°", (double)angle);
+    status_ui_update("Encoder", "%.2f°", (double)angle);
 }
 
 bool encoder_can_is_fresh(uint32_t max_age_ms, float *angle_out) {

@@ -25,8 +25,6 @@ static const control_config_t s_control_defaults = {
     .roll_kd   = CONTROL_DEFAULT_ROLL_KD,
     .rudder_exponent_x100 = CONTROL_DEFAULT_RUDDER_EXPONENT_X100,
     .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
-    .arm_threshold_pct    = CONTROL_DEFAULT_ARM_THRESHOLD_PCT,
-    .disarm_threshold_pct = CONTROL_DEFAULT_DISARM_THRESHOLD_PCT,
     .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
     .elevon_max_diff_deg     = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
 };
@@ -63,8 +61,6 @@ static const app_config_t s_defaults = {
         .roll_kd   = CONTROL_DEFAULT_ROLL_KD,
         .rudder_exponent_x100 = CONTROL_DEFAULT_RUDDER_EXPONENT_X100,
         .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
-        .arm_threshold_pct    = CONTROL_DEFAULT_ARM_THRESHOLD_PCT,
-        .disarm_threshold_pct = CONTROL_DEFAULT_DISARM_THRESHOLD_PCT,
         .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
         .elevon_max_diff_deg     = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
     },
@@ -172,7 +168,13 @@ esp_err_t config_load(app_config_t *out) {
     nvs_close(h);
 
     if (e != ESP_OK || sz != sizeof(*out) || !servo_config_is_valid(&out->servo)) {
+        ESP_LOGW(TAG, "config_load: bad blob (e=%d sz=%u expected=%u) — using defaults",
+                 e, (unsigned)sz, (unsigned)sizeof(*out));
         *out = s_defaults;
+    } else {
+        ESP_LOGI(TAG, "config_load: loaded from NVS (servo ch0 min=%.1f max=%.1f ch1 min=%.1f max=%.1f)",
+                 (double)out->servo.channel[0].min_angle_deg, (double)out->servo.channel[0].max_angle_deg,
+                 (double)out->servo.channel[1].min_angle_deg, (double)out->servo.channel[1].max_angle_deg);
     }
     return ESP_OK;
 }

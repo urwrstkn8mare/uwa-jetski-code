@@ -35,11 +35,13 @@ void control_get_last_output(control_output_t *out);
 void  control_set_elevon_max_angle(float deg);
 float control_get_elevon_max_angle(void);
 
-/* joy_pitch_pct: 0..100, 50 = centre. Used when height_enabled is false to
+/* rudder_angle: raw encoder angle in degrees; exponent curve is applied
+ * internally to derive the roll setpoint fed into the PID loop.
+ * joy_pitch_pct: 0..100, 50 = centre. Used when height_enabled is false to
  * set pitch target directly from the joystick up/down axis. */
 void control_update(int16_t height_cm,
                     float pitch_deg,
                     float roll_deg,
-                    uint16_t rudder_pct,
+                    float rudder_angle,
                     uint16_t joy_pitch_pct,
                     control_output_t *out);
