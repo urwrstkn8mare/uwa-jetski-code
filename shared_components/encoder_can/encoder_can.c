@@ -150,7 +150,10 @@ bool encoder_can_is_fresh(uint32_t max_age_ms, float *angle_out) {
         return false;
     }
     if (angle_out != NULL) {
-        *angle_out = angle;
+        float clamped = angle;
+        if      (clamped >  20.0f) clamped =  20.0f;
+        else if (clamped < -20.0f) clamped = -20.0f;
+        *angle_out = clamped;
     }
     return true;
 }

@@ -7,9 +7,11 @@
 #include "esp_err.h"
 
 typedef struct {
-    float elevon_left_deg;   /* commanded angle for left elevon */
-    float elevon_right_deg;  /* commanded angle for right elevon */
+    float elevon_left_deg;
+    float elevon_right_deg;
     bool  armed;
+    float pitch_target_deg;
+    float roll_target_deg;
     float dbg[6];            /* height_p, i, d — pitch_p, i, d */
 } control_output_t;
 

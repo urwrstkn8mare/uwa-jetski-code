@@ -51,12 +51,11 @@ _Static_assert(sizeof(can_gps_velocity_t) == 8, "CAN GPS velocity frame must be 
 
 typedef struct __attribute__((packed)) {
     uint8_t  height_target_cm;       /* 0..100 cm, integer */
-    uint16_t height_current_cm_x10;  /* cm * 10, e.g. 123 = 12.3 cm */
     int16_t  pitch_target_deg_x10;   /* degrees * 10, e.g. 123 = 12.3° */
     int16_t  roll_target_deg_x10;    /* degrees * 10 */
     uint8_t  flags;                  /* bit 0: armed */
 } can_ctrl_status_t;
-_Static_assert(sizeof(can_ctrl_status_t) == 8, "CAN ctrl status frame must be 8 bytes");
+_Static_assert(sizeof(can_ctrl_status_t) == 6, "CAN ctrl status frame must be 6 bytes");
 
 /* Joystick axes from aux controller (0..100, 50 = centre) */
 typedef struct __attribute__((packed)) {

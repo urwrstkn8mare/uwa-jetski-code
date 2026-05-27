@@ -1,7 +1,5 @@
 #include "control.h"
 
-#include "can.h"
-#include "can_ids.h"
 #include "esp_log.h"
 #include "status_ui.h"
 
@@ -145,7 +143,6 @@ void control_set_target(int16_t height_cm) {
     if (height_cm < 0) height_cm = 0;
     if (height_cm > 50) height_cm = 50;
     s_target_height_cm = height_cm;
-    if (s_change_cb) s_change_cb();
 }
 
 int16_t control_get_target(void) {
@@ -242,21 +239,12 @@ void control_update(int16_t height_cm,
 
     if (out) {
         out->armed = true;
-        out->elevon_left_deg = elevon_left;
+        out->elevon_left_deg  = elevon_left;
         out->elevon_right_deg = elevon_right;
+        out->pitch_target_deg = pitch_target;
+        out->roll_target_deg  = roll_target_deg;
         s_last_out = *out;
     }
-
-    can_ctrl_status_t cs = {
-        .height_target_cm      = (uint8_t)(s_target_height_cm < 0   ? 0   :
-                                            s_target_height_cm > 100 ? 100 :
-                                            s_target_height_cm),
-        .height_current_cm_x10 = (uint16_t)(height_cm * 10),
-        .pitch_target_deg_x10  = (int16_t)(pitch_target * 10.0f),
-        .roll_target_deg_x10   = (int16_t)(roll_target_deg * 10.0f),
-        .flags                 = 1u,
-    };
-    (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
 
     status_ui_update("Limits", "max=%.2f ctr=%.2f diff=%.2f",
                      (double)s_elevon_max_angle, (double)max_center, (double)max_diff);

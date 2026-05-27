@@ -97,50 +97,44 @@ static void ctrl_task(void *arg) {
   for (;;) {
     int64_t t0 = esp_timer_get_time();
 
-    if (control_is_armed() && !servo_drive_any_cal_mode()) {
-      /* ── Armed: full PID stabilisation loop ── */
-
-      float rudder_angle = 0.0f;
-      encoder_can_is_fresh(500, &rudder_angle);
-
-      float pitch = 0.0f, roll = 0.0f, yaw = 0.0f;
-      if (imu_is_ready()) {
-        imu_get_pitch_roll_yaw(&pitch, &roll, &yaw);
-      }
-
-      int32_t height_cm = 30;
-      height_get_cm(&height_cm);
-
-      control_output_t out;
-      control_update((int16_t)height_cm, pitch, roll, rudder_angle,
-                     s_joy_pitch_pct, &out);
-
-      if (s_servo_left != SERVO_CHANNEL_INVALID) {
-        servo_drive_set_degrees(s_servo_left, out.elevon_left_deg);
-      }
-      if (s_servo_right != SERVO_CHANNEL_INVALID) {
-        servo_drive_set_degrees(s_servo_right, out.elevon_right_deg);
-      }
-
-      perf_tick(&s_armed_perf, (uint32_t)(esp_timer_get_time() - t0), true);
-
-    } else {
-      /* ── Disarmed: hold servos at neutral ── */
-
-      if (servo_drive_any_cal_mode() && control_is_armed()) {
-        control_disarm();
-      }
-
-      if (!servo_drive_any_cal_mode()) {
-        if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  0.0f);
-        if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, 0.0f);
-      }
-
-      can_ctrl_status_t cs = { .flags = 0u };
-      (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
-
-      perf_tick(&s_disarmed_perf, (uint32_t)(esp_timer_get_time() - t0), false);
+    if (servo_drive_any_cal_mode() && control_is_armed()) {
+      control_disarm();
     }
+
+    float rudder_angle = 0.0f;
+    encoder_can_is_fresh(500, &rudder_angle);
+
+    float pitch = 0.0f, roll = 0.0f, yaw = 0.0f;
+    if (imu_is_ready()) {
+      imu_get_pitch_roll_yaw(&pitch, &roll, &yaw);
+    }
+
+    int32_t height_cm = 30;
+    height_get_cm(&height_cm);
+
+    control_output_t out = {0};
+    control_update((int16_t)height_cm, pitch, roll, rudder_angle,
+                   s_joy_pitch_pct, &out);
+
+    if (out.armed && !servo_drive_any_cal_mode()) {
+      if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  out.elevon_left_deg);
+      if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, out.elevon_right_deg);
+    } else if (!servo_drive_any_cal_mode()) {
+      if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  0.0f);
+      if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, 0.0f);
+    }
+
+    int16_t tgt = control_get_target();
+    can_ctrl_status_t cs = {
+        .height_target_cm     = (uint8_t)(tgt < 0 ? 0 : tgt > 100 ? 100 : tgt),
+        .pitch_target_deg_x10 = (int16_t)(out.pitch_target_deg * 10.0f),
+        .roll_target_deg_x10  = (int16_t)(out.roll_target_deg  * 10.0f),
+        .flags                = out.armed ? 1u : 0u,
+    };
+    (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
+
+    uint32_t dur_us = (uint32_t)(esp_timer_get_time() - t0);
+    perf_tick(out.armed ? &s_armed_perf : &s_disarmed_perf, dur_us, out.armed);
 
     vTaskDelay(pdMS_TO_TICKS(20));
   }

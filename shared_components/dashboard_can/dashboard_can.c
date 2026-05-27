@@ -96,10 +96,7 @@ static void paint_rudder(void) {
   if (!s_rx_data.have_rudder) {
     return;
   }
-  int32_t rudder_deg = (int32_t)s_rx_data.rudder_angle_deg;
-  if (rudder_deg >  20) rudder_deg =  20;
-  if (rudder_deg < -20) rudder_deg = -20;
-  dashboard_ui_set_rudder(rudder_deg);
+  dashboard_ui_set_rudder((int32_t)s_rx_data.rudder_angle_deg);
 }
 
 static void paint_setpoints(void) {
@@ -180,12 +177,10 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   case CAN_ID_CTRL_STATUS: {
     can_ctrl_status_t cs;
     memcpy(&cs, buffer, sizeof(cs));
-    s_rx_data.height_target_cm    = (int16_t)cs.height_target_cm;
-    s_rx_data.height_cm           = (int16_t)(cs.height_current_cm_x10 / 10);
-    s_rx_data.pitch_setpoint_deg  = cs.pitch_target_deg_x10 / 10;
-    s_rx_data.roll_setpoint_deg   = cs.roll_target_deg_x10  / 10;
-    s_rx_data.have_height         = true;
-    s_rx_data.have_ctrl           = true;
+    s_rx_data.height_target_cm   = (int16_t)cs.height_target_cm;
+    s_rx_data.pitch_setpoint_deg = cs.pitch_target_deg_x10 / 10;
+    s_rx_data.roll_setpoint_deg  = cs.roll_target_deg_x10  / 10;
+    s_rx_data.have_ctrl          = true;
     with_lock(paint_height);
     with_lock(paint_setpoints);
     break;
