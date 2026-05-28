@@ -1,6 +1,7 @@
 #include "joystick.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "can.h"
 #include "can_ids.h"
@@ -45,6 +46,14 @@ static void joystick_tx_task(void *arg) {
 
         uint16_t x_pct = raw_to_pct(x_raw, CONFIG_JOYSTICK_X_ADC_MIN, CONFIG_JOYSTICK_X_ADC_ZERO, CONFIG_JOYSTICK_X_ADC_MAX);
         uint16_t y_pct = raw_to_pct(y_raw, CONFIG_JOYSTICK_Y_ADC_MIN, CONFIG_JOYSTICK_Y_ADC_ZERO, CONFIG_JOYSTICK_Y_ADC_MAX);
+
+        int x_dev = (int)x_pct - 50;
+        int y_dev = (int)y_pct - 50;
+        if (abs(x_dev) >= abs(y_dev)) {
+            y_pct = 50;
+        } else {
+            x_pct = 50;
+        }
 
         can_joystick_t joy = { .x_pct = x_pct, .y_pct = y_pct };
         (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));
