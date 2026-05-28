@@ -1,6 +1,7 @@
 #include "height.h"
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 
 #include "a02yyuw.h"
@@ -13,6 +14,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "imu.h"
 #include "status_ui.h"
 
 static const char *TAG = "height";
@@ -108,10 +110,23 @@ static void height_task(void *pvParameters) {
         uint16_t distance_mm = 0;
         ret = a02yyuw_read_distance(&dev, &distance_mm);
         if (ret == ESP_OK && distance_mm >= A02YYUW_MIN_RANGE && distance_mm <= A02YYUW_MAX_RANGE) {
-            int32_t height_cm = (int32_t)(distance_mm / 10);
+            /* Ultrasonic measures slant range along the sensor's body-down axis.
+             * Project to true vertical by multiplying by cos(pitch)·cos(roll) —
+             * the component of body-z on world-z for small/moderate tilts. */
+            float cos_factor = 1.0f;
+            {
+                float pitch_deg, roll_deg, yaw_deg;
+                if (imu_get_pitch_roll_yaw(&pitch_deg, &roll_deg, &yaw_deg) == ESP_OK) {
+                    const float deg_to_rad = (float)M_PI / 180.0f;
+                    cos_factor = cosf(pitch_deg * deg_to_rad) * cosf(roll_deg * deg_to_rad);
+                    if (cos_factor < 0.0f) cos_factor = 0.0f;
+                }
+            }
+            int32_t height_cm = (int32_t)((float)distance_mm * cos_factor / 10.0f);
             s_height_cm = height_cm;
             status_ui_update("Height", "%" PRId32 " cm", height_cm);
-            ESP_LOGD(TAG, "Height: %ld cm (%u mm)", height_cm, distance_mm);
+            ESP_LOGD(TAG, "Height: %ld cm (%u mm, k=%.3f)",
+                     height_cm, distance_mm, (double)cos_factor);
             if (height_cm >= 0 && height_cm <= (int32_t)UINT16_MAX) {
                 can_height_t hb = {.height_cm = (uint16_t)height_cm};
                 (void)can_tx(CAN_ID_HEIGHT, (const uint8_t *)&hb, sizeof(hb));
