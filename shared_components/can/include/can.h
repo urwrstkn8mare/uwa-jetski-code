@@ -8,6 +8,8 @@
  * Callback invoked when a CAN frame is received.
  *
  * Called from the CAN RX worker task context (never from ISR context).
+ * Every registered callback is invoked for every received frame; each one
+ * filters by header_id itself.
  */
 typedef void (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp);
 
@@ -16,10 +18,20 @@ typedef void (*can_rx_cb_t)(const uint8_t buffer[8], uint32_t header_id, uint64_
  *
  * Creates internal TX/RX worker tasks and starts the TWAI node.
  *
- * @param[in] can_rx_cb Function to call when CAN frame received. Can be NULL.
  * @return ESP_OK on success, error code on failure.
  */
-esp_err_t can_init(can_rx_cb_t can_rx_cb);
+esp_err_t can_init(void);
+
+/**
+ * @brief Register a callback to receive CAN frames.
+ *
+ * Callbacks may be registered before or after can_init(). Every registered
+ * callback is invoked (in registration order) for every received frame.
+ *
+ * @param[in] cb Callback to register (must be non-NULL).
+ * @return ESP_OK on success, ESP_ERR_NO_MEM if the callback table is full.
+ */
+esp_err_t can_register_rx_cb(can_rx_cb_t cb);
 
 /**
  * @brief Transmit a CAN frame

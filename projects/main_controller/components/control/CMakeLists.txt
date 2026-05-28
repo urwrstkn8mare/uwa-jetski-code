@@ -1,3 +1,3 @@
 idf_component_register(SRCS "control.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES can config status_ui)
+                       REQUIRES can config status_ui servo_drive imu height encoder_can)

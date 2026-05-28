@@ -113,9 +113,6 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     return;
   }
 
-  /* Route to encoder_can for rudder angle decoding */
-  encoder_can_on_rx(buffer, header_id);
-
   switch (header_id) {
   case CAN_ID_ATTITUDE: {
     if (sizeof(can_attitude_t) <= 8) {
@@ -192,7 +189,7 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
     if (header_id == (uint32_t)CONFIG_ENCODER_DEVICE_ID ||
         header_id == (uint32_t)(0x180u + CONFIG_ENCODER_DEVICE_ID)) {
       float angle = 0.0f;
-      if (encoder_can_is_fresh(500, &angle)) {
+      if (encoder_can_get_angle(&angle)) {
         s_rx_data.rudder_angle_deg = (int16_t)angle;
         s_rx_data.have_rudder = true;
         with_lock(paint_rudder);
@@ -214,4 +211,13 @@ esp_err_t dashboard_can_attach(dashboard_can_lock_fn_t lock, dashboard_can_unloc
   return ESP_OK;
 }
 
-esp_err_t dashboard_can_start(void) { return can_init(on_can_rx); }
+esp_err_t dashboard_can_start(void) {
+  esp_err_t err = can_init();
+  if (err != ESP_OK) {
+    return err;
+  }
+  /* Register the encoder decoder first so rudder freshness is updated before
+   * on_can_rx repaints it. */
+  encoder_can_init(false);
+  return can_register_rx_cb(on_can_rx);
+}

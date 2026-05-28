@@ -1,5 +1,0 @@
-menu "UWA Jetski — Direct PWM Servos"
-    config SERVO_SKIP_HW
-        bool "Disable servo hardware init"
-        default n
-endmenu

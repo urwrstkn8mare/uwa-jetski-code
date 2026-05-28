@@ -9,7 +9,6 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "icm20948.h"
 #include "icm20948_i2c.h"
@@ -30,12 +29,11 @@ static i2c_master_bus_handle_t s_i2c_bus = NULL;
 static i2c_master_dev_handle_t s_i2c_dev = NULL;
 static icm20948_device_t s_icm_dev;
 static icm0948_config_i2c_t s_icm_cfg;
-static SemaphoreHandle_t s_mutex;
 static bool s_imu_initialized = false;
 static volatile bool s_reader_task_started = false;
-static float s_pitch_deg = 0.0f;
-static float s_roll_deg = 0.0f;
-static float s_yaw_deg = 0.0f;
+static volatile float s_pitch_deg = 0.0f;
+static volatile float s_roll_deg = 0.0f;
+static volatile float s_yaw_deg = 0.0f;
 
 static void quaternion_to_rpy(double q0, double q1, double q2, double q3, float *pitch, float *roll, float *yaw) {
     const double sinr_cosp = 2.0 * ((q0 * q1) + (q2 * q3));
@@ -125,11 +123,10 @@ static void imu_reader_task(void *arg) {
                 float yaw = 0.0f;
                 quaternion_to_rpy(sqrt(q0_sq), q1, q2, q3, &pitch, &roll, &yaw);
 
-                if (rpy_is_valid(pitch, roll, yaw) && xSemaphoreTake(s_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+                if (rpy_is_valid(pitch, roll, yaw)) {
                     s_pitch_deg = pitch;
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;
-                    xSemaphoreGive(s_mutex);
                     status_ui_update("IMU", "P:%.2f R:%.2f Y:%.2f deg",
                                      (double)pitch, (double)roll, (double)yaw);
                     can_attitude_t att = {
@@ -151,18 +148,8 @@ static void imu_reader_task(void *arg) {
 }
 
 esp_err_t imu_init(void) {
-#if CONFIG_IMU_SKIP_HW
-    ESP_LOGW(TAG, "IMU disabled by Kconfig (CONFIG_IMU_SKIP_HW)");
-    return ESP_FAIL;
-#endif
-
     if (s_imu_initialized) {
         return ESP_OK;
-    }
-
-    if (s_mutex == NULL) {
-        s_mutex = xSemaphoreCreateMutex();
-        ESP_RETURN_ON_FALSE(s_mutex != NULL, ESP_ERR_NO_MEM, TAG, "failed to create mutex");
     }
 
     ESP_RETURN_ON_ERROR(init_icm_i2c(), TAG, "failed to init i2c");
@@ -215,17 +202,11 @@ bool imu_is_ready(void) {
 esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
     ESP_RETURN_ON_FALSE(pitch != NULL && roll != NULL, ESP_ERR_INVALID_ARG, TAG, "pitch/roll is null");
     ESP_RETURN_ON_FALSE(s_imu_initialized, ESP_ERR_INVALID_STATE, TAG, "imu not initialized");
-    ESP_RETURN_ON_FALSE(s_mutex != NULL, ESP_ERR_INVALID_STATE, TAG, "imu mutex missing");
-
-    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) {
-        return ESP_FAIL;
-    }
 
     *pitch = s_pitch_deg;
     *roll = s_roll_deg;
     if (yaw != NULL) {
         *yaw = s_yaw_deg;
     }
-    xSemaphoreGive(s_mutex);
     return ESP_OK;
 }

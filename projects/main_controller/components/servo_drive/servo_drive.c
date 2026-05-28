@@ -2,9 +2,12 @@
 
 #include "can.h"
 #include "can_ids.h"
+#include "config.h"
 #include "driver/ledc.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "status_ui.h"
 #include "sdkconfig.h"
 
@@ -14,7 +17,7 @@
 
 static const char *TAG = "servo_pwm";
 
-#define SERVO_MAX_INSTANCES 8
+#define SERVO_CAL_NVS_KEY "servo"
 
 typedef struct {
     bool in_use;
@@ -25,6 +28,7 @@ typedef struct {
     servo_calibration_t cal;
     float cmd_deg;
     bool cal_mode;
+    bool dirty;  /* state changed since last publish — notify change_cb */
 } servo_instance_t;
 
 static servo_instance_t s_instances[SERVO_MAX_INSTANCES];
@@ -32,6 +36,11 @@ static uint8_t s_ledc_channel_mask;
 static bool s_hw_initialized;
 static bool s_simulated;
 static void (*s_change_cb)(int idx);
+static TaskHandle_t s_pub_task_hdl;
+
+/* Persisted calibration for the two elevon channels (slots 0 and 1). */
+static servo_config_t s_servo_cfg;
+static volatile float s_effective_range_deg;
 
 static uint32_t s_pwm_freq_hz;
 static uint32_t s_pwm_max_duty;
@@ -92,6 +101,27 @@ static int first_free_ledc_channel(void) {
     return -1;
 }
 
+static void load_servo_cfg(void) {
+    if (config_get_blob(SERVO_CAL_NVS_KEY, &s_servo_cfg, sizeof(s_servo_cfg)) != ESP_OK ||
+        !cal_is_valid(&s_servo_cfg.channel[0]) || !cal_is_valid(&s_servo_cfg.channel[1])) {
+        s_servo_cfg.channel[0] = s_default_cal;
+        s_servo_cfg.channel[1] = s_default_cal;
+    }
+}
+
+static void recompute_effective_range(void) {
+    float range = -1.0f;
+    for (int i = 0; i < SERVO_MAX_INSTANCES; i++) {
+        if (!s_instances[i].in_use) continue;
+        float ch = fminf(fabsf(s_instances[i].cal.min_angle_deg), fabsf(s_instances[i].cal.max_angle_deg));
+        if (range < 0.0f || ch < range) range = ch;
+    }
+    if (range < 0.0f) {
+        range = fminf(fabsf(SERVO_DEFAULT_MIN_ANGLE_DEG), fabsf(SERVO_DEFAULT_MAX_ANGLE_DEG));
+    }
+    s_effective_range_deg = range;
+}
+
 static void servo_drive_update_status(void) {
     int hw = 0, sim = 0, cal = 0, total = 0;
     float d0 = 0.0f, d1 = 0.0f;
@@ -112,32 +142,37 @@ static void servo_drive_update_status(void) {
     status_ui_update("Servo", "%s %d/%d L=%.2f R=%.2f", mode, hw + sim, total, d0, d1);
 }
 
-static void servo_drive_push_instance(int idx) {
+/* Hot path: push the commanded angle to the PWM hardware. Fast and
+ * non-blocking — no CAN TX, no status_ui, no callbacks. */
+static void servo_apply_duty(int idx) {
     if (idx < 0 || idx >= SERVO_MAX_INSTANCES || !s_instances[idx].in_use) return;
-
+    if (s_instances[idx].simulated) return;
     uint32_t pulse_us = (uint32_t)lroundf(deg_to_pulse_us(&s_instances[idx].cal, s_instances[idx].cmd_deg));
-
-    if (s_instances[idx].simulated) {
-        servo_drive_update_status();
-        can_servo_pos_t sp = {
-            .channel = (uint8_t)idx,
-            .deg     = s_instances[idx].cmd_deg,
-        };
-        (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
-        if (s_change_cb) s_change_cb(idx);
-        return;
-    }
-
     uint32_t duty = pulse_us_to_duty(pulse_us);
     (void)ledc_set_duty(s_speed_mode, s_instances[idx].ledc_ch, duty);
     (void)ledc_update_duty(s_speed_mode, s_instances[idx].ledc_ch);
-    servo_drive_update_status();
-    can_servo_pos_t sp = {
-        .channel = (uint8_t)idx,
-        .deg     = s_instances[idx].cmd_deg,
-    };
-    (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
-    if (s_change_cb) s_change_cb(idx);
+}
+
+/* Publishes servo position over CAN and to status_ui, off the command path so
+ * commanding never blocks on the TWAI queue or the display lock. */
+static void servo_pub_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        for (int i = 0; i < SERVO_MAX_INSTANCES; i++) {
+            if (!s_instances[i].in_use) continue;
+            can_servo_pos_t sp = {
+                .channel = (uint8_t)i,
+                .deg     = s_instances[i].cmd_deg,
+            };
+            (void)can_tx(CAN_ID_SERVO_POS, (const uint8_t *)&sp, sizeof(sp));
+            if (s_instances[i].dirty) {
+                s_instances[i].dirty = false;
+                if (s_change_cb) s_change_cb(i);
+            }
+        }
+        servo_drive_update_status();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }
 
 esp_err_t servo_drive_init_hw(void) {
@@ -151,12 +186,12 @@ esp_err_t servo_drive_init_hw(void) {
     s_pwm_freq_hz = 50u;
     s_pwm_max_duty = (1u << LEDC_TIMER_14_BIT) - 1u;
 
-#if CONFIG_SERVO_SKIP_HW
-    ESP_LOGW(TAG, "Servo PWM disabled by Kconfig — simulated mode");
-    s_simulated = true;
-    s_hw_initialized = true;
-    return ESP_OK;
-#endif
+    load_servo_cfg();
+    recompute_effective_range();
+
+    if (s_pub_task_hdl == NULL) {
+        xTaskCreate(servo_pub_task, "servo_pub", 3072, NULL, 3, &s_pub_task_hdl);
+    }
 
     ledc_timer_config_t timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
@@ -206,9 +241,10 @@ servo_channel_t servo_drive_open(int gpio) {
     s_instances[slot].gpio = gpio;
     s_instances[slot].cmd_deg = 0.0f;
     s_instances[slot].cal_mode = false;
-    s_instances[slot].cal = s_default_cal;
+    s_instances[slot].cal = (slot < 2) ? s_servo_cfg.channel[slot] : s_default_cal;
     s_instances[slot].simulated = s_simulated;
     s_instances[slot].ready = false;
+    recompute_effective_range();
 
     if (s_simulated) {
         s_instances[slot].ledc_ch = LEDC_CHANNEL_MAX;
@@ -220,7 +256,7 @@ servo_channel_t servo_drive_open(int gpio) {
     ledc_channel_t ledc_channel = (ledc_channel_t)ledc_ch_num;
     s_instances[slot].ledc_ch = ledc_channel;
 
-    uint32_t init_pulse = (uint32_t)lroundf(deg_to_pulse_us(&s_default_cal, 0.0f));
+    uint32_t init_pulse = (uint32_t)lroundf(deg_to_pulse_us(&s_instances[slot].cal, 0.0f));
     uint32_t init_duty = pulse_us_to_duty(init_pulse);
 
     ledc_channel_config_t ch = {
@@ -262,6 +298,7 @@ esp_err_t servo_drive_close(servo_channel_t h) {
     s_instances[h].in_use = false;
     s_instances[h].ready = false;
     s_instances[h].ledc_ch = LEDC_CHANNEL_MAX;
+    recompute_effective_range();
     ESP_LOGI(TAG, "servo close: slot=%d", h);
     return ESP_OK;
 }
@@ -271,7 +308,8 @@ void servo_drive_set_degrees(servo_channel_t h, float deg) {
     float lo = fminf(s_instances[h].cal.min_angle_deg, s_instances[h].cal.max_angle_deg);
     float hi = fmaxf(s_instances[h].cal.min_angle_deg, s_instances[h].cal.max_angle_deg);
     s_instances[h].cmd_deg = clamp_float(deg, lo, hi);
-    servo_drive_push_instance((int)h);
+    s_instances[h].dirty = true;
+    servo_apply_duty((int)h);
 }
 
 void servo_drive_set_raw_us(servo_channel_t h, float pulse_us) {
@@ -284,8 +322,7 @@ void servo_drive_set_raw_us(servo_channel_t h, float pulse_us) {
         (void)ledc_set_duty(s_speed_mode, s_instances[h].ledc_ch, duty);
         (void)ledc_update_duty(s_speed_mode, s_instances[h].ledc_ch);
     }
-    servo_drive_update_status();
-    if (s_change_cb) s_change_cb((int)h);
+    s_instances[h].dirty = true;
 }
 
 void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg) {
@@ -299,8 +336,7 @@ void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg) {
 void servo_drive_set_cal_mode(servo_channel_t h, bool on) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
     s_instances[h].cal_mode = on;
-    servo_drive_update_status();
-    if (s_change_cb) s_change_cb((int)h);
+    s_instances[h].dirty = true;
 }
 
 bool servo_drive_is_cal_mode(servo_channel_t h) {
@@ -312,7 +348,17 @@ void servo_drive_apply_cal(servo_channel_t h, const servo_calibration_t *cal) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
     if (cal == NULL || !cal_is_valid(cal)) return;
     s_instances[h].cal = *cal;
-    servo_drive_push_instance((int)h);
+    if (h < 2) {
+        s_servo_cfg.channel[h] = *cal;
+        (void)config_set_blob(SERVO_CAL_NVS_KEY, &s_servo_cfg, sizeof(s_servo_cfg));
+    }
+    recompute_effective_range();
+    s_instances[h].dirty = true;
+    servo_apply_duty((int)h);
+}
+
+float servo_drive_get_effective_range_deg(void) {
+    return s_effective_range_deg;
 }
 
 void servo_drive_get_cal(servo_channel_t h, servo_calibration_t *out_cal) {

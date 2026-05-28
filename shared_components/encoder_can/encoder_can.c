@@ -2,9 +2,6 @@
 
 #include "can.h"
 #include "esp_log.h"
-#include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "status_ui.h"
 
@@ -31,19 +28,20 @@ static const char *TAG = "encoder_can";
 /* Auto-feedback frames arrive on 0x180 + device_id, not on device_id */
 #define ENCODER_AUTO_FEEDBACK_BASE 0x180u
 
-static SemaphoreHandle_t s_mx;
-static float    s_angle_deg;
-static bool     s_have;
-static int64_t  s_last_us;
+static volatile float s_angle_deg;
+static volatile bool  s_have;
 
-static void ensure_mutex(void) {
-    if (s_mx == NULL) {
-        s_mx = xSemaphoreCreateMutex();
+static void encoder_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp);
+
+esp_err_t encoder_can_init(bool configure) {
+    esp_err_t reg = can_register_rx_cb(encoder_rx_cb);
+    if (reg != ESP_OK) {
+        return reg;
     }
-}
 
-esp_err_t encoder_can_init(void) {
-    ensure_mutex();
+    if (!configure) {
+        return ESP_OK;
+    }
 
     /* Set mode to auto-return encoder value (0xAA) — must come before period.
      * Command 0x04: [LEN=4][DevID][0x04][0xAA] */
@@ -92,7 +90,8 @@ esp_err_t encoder_can_init(void) {
     return ESP_OK;
 }
 
-void encoder_can_on_rx(const uint8_t buffer[8], uint32_t header_id) {
+static void encoder_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t timestamp) {
+    (void)timestamp;
     if (buffer == NULL) {
         return;
     }
@@ -123,34 +122,18 @@ void encoder_can_on_rx(const uint8_t buffer[8], uint32_t header_id) {
     int32_t signed_raw = (raw > res / 2u) ? (int32_t)raw - (int32_t)res : (int32_t)raw;
     float angle = (float)signed_raw * 360.0f / (float)res;
 
-    ensure_mutex();
-    xSemaphoreTake(s_mx, portMAX_DELAY);
     s_angle_deg = angle;
     s_have      = true;
-    s_last_us   = esp_timer_get_time();
-    xSemaphoreGive(s_mx);
 
     status_ui_update("Encoder", "%.2f°", (double)angle);
 }
 
-bool encoder_can_is_fresh(uint32_t max_age_ms, float *angle_out) {
-    ensure_mutex();
-
-    xSemaphoreTake(s_mx, portMAX_DELAY);
-    const bool     have  = s_have;
-    const float    angle = s_angle_deg;
-    const int64_t  last  = s_last_us;
-    xSemaphoreGive(s_mx);
-
-    if (!have) {
-        return false;
-    }
-    const int64_t max_dt = (int64_t)(max_age_ms ? max_age_ms : 1u) * 1000LL;
-    if ((esp_timer_get_time() - last) > max_dt) {
+bool encoder_can_get_angle(float *angle_out) {
+    if (!s_have) {
         return false;
     }
     if (angle_out != NULL) {
-        float clamped = angle;
+        float clamped = s_angle_deg;
         if      (clamped >  20.0f) clamped =  20.0f;
         else if (clamped < -20.0f) clamped = -20.0f;
         *angle_out = clamped;

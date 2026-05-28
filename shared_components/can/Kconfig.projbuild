@@ -21,12 +21,4 @@ menu "UWA Jetski - CAN configuration"
         help
             Number of frames that can be queued for transmission before blocking/dropping
 
-    config CAN_SKIP_HW
-        bool "Skip TWAI driver (no CAN at runtime)"
-        default n
-        help
-            Do not initialize the TWAI controller. Use for USB-only bring-up when no CAN transceiver
-            is wired, or to avoid pin/peripheral conflicts. Application treats CAN as unavailable
-            (same as failed init).
-
 endmenu

@@ -12,7 +12,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "status_ui.h"
 
@@ -22,8 +21,7 @@ static const char *TAG = "height";
 #define CONFIG_HEIGHT_PROBE_TIMEOUT_MS 2000
 #endif
 
-static SemaphoreHandle_t s_mutex;
-static int32_t s_height_cm = 0;
+static volatile int32_t s_height_cm = 0;
 static bool s_initialized = false;
 static bool s_init_failed = false;
 static bool s_simulated = false;
@@ -99,10 +97,7 @@ static void height_task(void *pvParameters) {
         return;
     }
 
-    if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-        s_height_cm = (int32_t)(first_mm / 10);
-        xSemaphoreGive(s_mutex);
-    }
+    s_height_cm = (int32_t)(first_mm / 10);
 
     ESP_LOGI(TAG, "A02YYUW OK on UART%d (%u mm) — streaming height", CONFIG_HEIGHT_UART_PORT,
              (unsigned)first_mm);
@@ -114,10 +109,7 @@ static void height_task(void *pvParameters) {
         ret = a02yyuw_read_distance(&dev, &distance_mm);
         if (ret == ESP_OK && distance_mm >= A02YYUW_MIN_RANGE && distance_mm <= A02YYUW_MAX_RANGE) {
             int32_t height_cm = (int32_t)(distance_mm / 10);
-            if (xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE) {
-                s_height_cm = height_cm;
-                xSemaphoreGive(s_mutex);
-            }
+            s_height_cm = height_cm;
             status_ui_update("Height", "%" PRId32 " cm", height_cm);
             ESP_LOGD(TAG, "Height: %ld cm (%u mm)", height_cm, distance_mm);
             if (height_cm >= 0 && height_cm <= (int32_t)UINT16_MAX) {
@@ -132,28 +124,6 @@ static void height_task(void *pvParameters) {
 }
 
 esp_err_t height_init(void) {
-#if CONFIG_HEIGHT_SKIP_HW
-    ESP_LOGW(TAG, "Height sensor disabled by Kconfig — entering simulated mode");
-    s_simulated = true;
-    s_initialized = true;
-    status_ui_update("Height", "SIM 30 cm");
-    return ESP_OK;
-#endif
-
-    static bool mutex_ready;
-
-    if (!mutex_ready) {
-        s_mutex = xSemaphoreCreateMutex();
-        if (s_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create mutex — entering simulated mode");
-            s_simulated = true;
-            s_initialized = true;
-            status_ui_update("Height", "SIM 30 cm");
-            return ESP_OK;
-        }
-        mutex_ready = true;
-    }
-
     if (s_initialized) {
         return ESP_OK;
     }
@@ -192,10 +162,6 @@ esp_err_t height_get_cm(int32_t *height_cm) {
         *height_cm = 30;
         return ESP_OK;
     }
-    if (xSemaphoreTake(s_mutex, portMAX_DELAY) != pdTRUE) {
-        return ESP_FAIL;
-    }
     *height_cm = s_height_cm;
-    xSemaphoreGive(s_mutex);
     return ESP_OK;
 }

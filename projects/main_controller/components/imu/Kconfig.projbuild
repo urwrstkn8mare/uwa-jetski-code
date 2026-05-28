@@ -1,7 +1,4 @@
-menu "IMU Settings"
-    config IMU_SKIP_HW
-        bool "Disable ICM-20948 hardware init"
-        default n
+menu "UWA Jetski - IMU configuration"
 
     config IMU_I2C_PORT
         int "IMU I2C port"

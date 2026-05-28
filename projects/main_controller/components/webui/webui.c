@@ -1,6 +1,5 @@
 #include "webui.h"
 
-#include "config.h"
 #include "control.h"
 #include "esp_check.h"
 #include "esp_err.h"
@@ -13,7 +12,6 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "lwip/sockets.h"
-#include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "servo_drive.h"
 
@@ -95,16 +93,10 @@ static esp_err_t sse_send_comment(const char *msg) {
     return send_raw(s_sse_fd, buf, (size_t)n);
 }
 
-static void sse_push_state(void) {
-    int64_t now = esp_timer_get_time();
-    if (now - s_last_state_push_us < STATE_THROTTLE_US) return;
-    s_last_state_push_us = now;
-
-    control_output_t out;
-    control_get_last_output(&out);
-
-    char buf[256];
-    int n = snprintf(buf, sizeof(buf),
+static int build_state_json(char *buf, size_t sz) {
+    control_status_t st;
+    control_get_status(&st);
+    return snprintf(buf, sz,
         "{"
         "\"armed\":%s,"
         "\"cal_mode\":%s,"
@@ -113,12 +105,21 @@ static void sse_push_state(void) {
         "\"elevon_right_deg\":%.1f,"
         "\"height_enabled\":%s"
         "}",
-        control_is_armed() ? "true" : "false",
+        st.armed ? "true" : "false",
         servo_drive_any_cal_mode() ? "true" : "false",
-        control_get_target(),
-        (double)out.elevon_left_deg,
-        (double)out.elevon_right_deg,
-        control_get_height_enabled() ? "true" : "false");
+        st.target_cm,
+        (double)st.elevon_left_deg,
+        (double)st.elevon_right_deg,
+        st.height_enabled ? "true" : "false");
+}
+
+static void sse_push_state(void) {
+    int64_t now = esp_timer_get_time();
+    if (now - s_last_state_push_us < STATE_THROTTLE_US) return;
+    s_last_state_push_us = now;
+
+    char buf[256];
+    int n = build_state_json(buf, sizeof(buf));
     if (n > 0 && n < (int)sizeof(buf)) {
         sse_send(buf);
     }
@@ -166,24 +167,8 @@ static void heartbeat_timer_cb(TimerHandle_t t) {
 }
 
 static esp_err_t api_get_state(httpd_req_t *req) {
-    control_output_t out;
-    control_get_last_output(&out);
     char buf[256];
-    int n = snprintf(buf, sizeof(buf),
-        "{"
-        "\"armed\":%s,"
-        "\"cal_mode\":%s,"
-        "\"target_cm\":%d,"
-        "\"elevon_left_deg\":%.1f,"
-        "\"elevon_right_deg\":%.1f,"
-        "\"height_enabled\":%s"
-        "}",
-        control_is_armed() ? "true" : "false",
-        servo_drive_any_cal_mode() ? "true" : "false",
-        control_get_target(),
-        (double)out.elevon_left_deg,
-        (double)out.elevon_right_deg,
-        control_get_height_enabled() ? "true" : "false");
+    int n = build_state_json(buf, sizeof(buf));
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
 }
@@ -304,16 +289,6 @@ static esp_err_t api_put_servo_calibration(httpd_req_t *req) {
         return json_error_resp(req, "angle range must span zero (one negative, one positive)");
 
     servo_drive_apply_cal((servo_channel_t)handle, &cal);
-    esp_err_t save_err = config_save_servo_cal(handle, &cal);
-    if (save_err != ESP_OK) return json_error_resp(req, "NVS save failed");
-
-    /* Recompute effective servo angle range for control limits immediately. */
-    servo_calibration_t cal0, cal1;
-    servo_drive_get_cal(0, &cal0);
-    servo_drive_get_cal(1, &cal1);
-    float range0 = fminf(fabsf(cal0.min_angle_deg), fabsf(cal0.max_angle_deg));
-    float range1 = fminf(fabsf(cal1.min_angle_deg), fabsf(cal1.max_angle_deg));
-    control_set_elevon_max_angle(fminf(range0, range1));
 
     return json_ok_resp(req);
 }
@@ -375,8 +350,11 @@ static esp_err_t api_post_servo_raw_pw(httpd_req_t *req) {
 }
 
 static esp_err_t api_get_config(httpd_req_t *req) {
-    app_config_t cfg;
-    config_load(&cfg);
+    control_config_t ctrl;
+    control_get_cfg(&ctrl);
+    servo_calibration_t s0, s1;
+    servo_drive_get_cal(0, &s0);
+    servo_drive_get_cal(1, &s1);
 
     char buf[1024];
     int n = snprintf(buf, sizeof(buf),
@@ -391,17 +369,17 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"servo0_min_pw_us\":%.2f,\"servo0_zero_pw_us\":%.2f,\"servo0_max_pw_us\":%.2f,\"servo0_min_angle_deg\":%.2f,\"servo0_max_angle_deg\":%.2f,"
         "\"servo1_min_pw_us\":%.2f,\"servo1_zero_pw_us\":%.2f,\"servo1_max_pw_us\":%.2f,\"servo1_min_angle_deg\":%.2f,\"servo1_max_angle_deg\":%.2f"
         "}",
-        (long)cfg.control.height_kp, (long)cfg.control.height_ki, (long)cfg.control.height_kd,
-        (long)cfg.control.pitch_kp, (long)cfg.control.pitch_ki, (long)cfg.control.pitch_kd,
-        (long)cfg.control.roll_kp, (long)cfg.control.roll_ki, (long)cfg.control.roll_kd,
-        (int)cfg.control.rudder_exponent_x100,
-        (int)cfg.control.rudder_max_roll_deg,
-        cfg.control.height_enabled ? "true" : "false",
-        (int)cfg.control.elevon_max_diff_deg,
-        (double)cfg.servo.channel[0].min_pw_us, (double)cfg.servo.channel[0].zero_pw_us, (double)cfg.servo.channel[0].max_pw_us,
-        (double)cfg.servo.channel[0].min_angle_deg, (double)cfg.servo.channel[0].max_angle_deg,
-        (double)cfg.servo.channel[1].min_pw_us, (double)cfg.servo.channel[1].zero_pw_us, (double)cfg.servo.channel[1].max_pw_us,
-        (double)cfg.servo.channel[1].min_angle_deg, (double)cfg.servo.channel[1].max_angle_deg);
+        (long)ctrl.height_kp, (long)ctrl.height_ki, (long)ctrl.height_kd,
+        (long)ctrl.pitch_kp, (long)ctrl.pitch_ki, (long)ctrl.pitch_kd,
+        (long)ctrl.roll_kp, (long)ctrl.roll_ki, (long)ctrl.roll_kd,
+        (int)ctrl.rudder_exponent_x100,
+        (int)ctrl.rudder_max_roll_deg,
+        ctrl.height_enabled ? "true" : "false",
+        (int)ctrl.elevon_max_diff_deg,
+        (double)s0.min_pw_us, (double)s0.zero_pw_us, (double)s0.max_pw_us,
+        (double)s0.min_angle_deg, (double)s0.max_angle_deg,
+        (double)s1.min_pw_us, (double)s1.zero_pw_us, (double)s1.max_pw_us,
+        (double)s1.min_angle_deg, (double)s1.max_angle_deg);
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
@@ -421,13 +399,13 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     }
     buf[buf_sz] = 0;
 
-    app_config_t cfg;
-    config_load(&cfg);
+    control_config_t ctrl;
+    control_get_cfg(&ctrl);
 
 #define PARSE_INT(field, key) \
-    if (has_key(buf, key)) { cfg.control.field = (int32_t)parse_number(buf, key); }
+    if (has_key(buf, key)) { ctrl.field = (int32_t)parse_number(buf, key); }
 #define PARSE_I16(field, key) \
-    if (has_key(buf, key)) { cfg.control.field = (int16_t)parse_number(buf, key); }
+    if (has_key(buf, key)) { ctrl.field = (int16_t)parse_number(buf, key); }
 
     PARSE_INT(height_kp, "\"height_kp\"")
     PARSE_INT(height_ki, "\"height_ki\"")
@@ -442,7 +420,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(rudder_max_roll_deg,  "\"rudder_max_roll_deg\"")
     PARSE_I16(elevon_max_diff_deg,  "\"elevon_max_diff_deg\"")
     if (has_key(buf, "\"height_enabled\"")) {
-        cfg.control.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
+        ctrl.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
     }
 
 #undef PARSE_INT
@@ -450,8 +428,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
 
     free(buf);
 
-    control_set_cfg(&cfg.control);
-    (void)config_save_control_cfg(&cfg.control);
+    control_apply_cfg(&ctrl);
 
     return json_ok_resp(req);
 }

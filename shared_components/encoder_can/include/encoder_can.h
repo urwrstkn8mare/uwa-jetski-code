@@ -9,9 +9,9 @@
  * Briterencoder CAN absolute rotary encoder driver.
  *
  * The encoder operates in auto-return mode: it periodically sends its current
- * position as a CAN frame.  Call encoder_can_init() once after CAN is up to
- * configure the encoder, then route every incoming CAN frame through
- * encoder_can_on_rx().
+ * position as a CAN frame.  Call encoder_can_init() once after can_init() to
+ * register the frame decoder; encoder frames are then decoded automatically by
+ * the CAN RX task.
  *
  * Frame format (encoder → host, CAN ID = encoder device address):
  *   data[0] = 0x07  (frame length)
@@ -24,18 +24,21 @@
  * encoder maps to 0°.
  */
 
-/* Configure encoder to auto-return mode and store runtime parameters.
- * Must be called after can_init(). */
-esp_err_t encoder_can_init(void);
-
-/* Feed a raw CAN frame into the encoder driver.  Call from on_can_rx(). */
-void encoder_can_on_rx(const uint8_t buffer[8], uint32_t header_id);
+/* Register the encoder frame decoder with the CAN RX layer. Must be called
+ * after can_init().
+ *
+ * @param configure  When true, also transmit the auto-return setup commands to
+ *                    the encoder (the controlling node does this; read-only
+ *                    consumers such as dashboards pass false). */
+esp_err_t encoder_can_init(bool configure);
 
 /*
- * Return true if a fresh encoder reading is available.
+ * Get the latest encoder angle.
  *
- * @param max_age_ms  Maximum acceptable age of the last frame in ms.
- * @param angle_out   Filled with the current angle in degrees if non-NULL.
- *                    Positive = clockwise from the zeroed position.
+ * @param angle_out  Filled with the current angle in degrees if non-NULL and a
+ *                   frame has been received. Positive = clockwise from the
+ *                   zeroed position.
+ * @return true if at least one frame has been received, false otherwise
+ *         (angle_out is left untouched when false).
  */
-bool encoder_can_is_fresh(uint32_t max_age_ms, float *angle_out);
+bool encoder_can_get_angle(float *angle_out);

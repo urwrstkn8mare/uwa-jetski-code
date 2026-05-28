@@ -15,7 +15,9 @@
 
 static const char *TAG = "can";
 
-static can_rx_cb_t s_given_can_rx_cb = NULL;
+#define CAN_MAX_RX_CBS 8
+static can_rx_cb_t s_rx_cbs[CAN_MAX_RX_CBS];
+static uint8_t s_rx_cb_count = 0;
 
 static twai_node_handle_t s_node_hdl = NULL;
 
@@ -70,21 +72,17 @@ static IRAM_ATTR bool can_rx_done_cb(twai_node_handle_t handle,
   if (s_rx_queue == NULL) {
     return false;
   }
-  uint8_t buf[8];
+  can_rx_msg_t msg = {0};
   twai_frame_t rx_frame = {
-      .buffer = buf,
-      .buffer_len = sizeof(buf),
+      .buffer = msg.buffer,
+      .buffer_len = sizeof(msg.buffer),
   };
   if (twai_node_receive_from_isr(handle, &rx_frame) != ESP_OK) {
     return false;
   }
-  can_rx_msg_t msg;
-  memset(&msg, 0, sizeof(msg));
-  uint8_t dlen = (rx_frame.buffer_len > 8) ? 8 : (uint8_t)rx_frame.buffer_len;
-  memcpy(msg.buffer, rx_frame.buffer, dlen);
   msg.id = rx_frame.header.id;
   msg.timestamp = rx_frame.header.timestamp;
-  msg.len = dlen;
+  msg.len = (rx_frame.buffer_len > 8) ? 8 : (uint8_t)rx_frame.buffer_len;
   BaseType_t yield = pdFALSE;
   xQueueSendFromISR(s_rx_queue, &msg, &yield);
   return yield == pdTRUE;
@@ -98,7 +96,9 @@ static void can_rx_task(void *arg) {
     if (xQueueReceive(s_rx_queue, &msg, portMAX_DELAY) != pdTRUE) {
       continue;
     }
-    s_given_can_rx_cb(msg.buffer, msg.id, msg.timestamp);
+    for (uint8_t i = 0; i < s_rx_cb_count; i++) {
+      s_rx_cbs[i](msg.buffer, msg.id, msg.timestamp);
+    }
   }
 }
 
@@ -123,19 +123,23 @@ static void can_diag_task(void *arg) {
 }
 
 /* ---------- Public API ---------- */
-esp_err_t can_init(can_rx_cb_t can_rx_cb) {
+esp_err_t can_register_rx_cb(can_rx_cb_t cb) {
+  if (cb == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (s_rx_cb_count >= CAN_MAX_RX_CBS) {
+    ESP_LOGE(TAG, "RX callback table full (%d)", CAN_MAX_RX_CBS);
+    return ESP_ERR_NO_MEM;
+  }
+  s_rx_cbs[s_rx_cb_count++] = cb;
+  return ESP_OK;
+}
+
+esp_err_t can_init(void) {
   if (s_node_hdl != NULL) {
     ESP_LOGW(TAG, "CAN already initialised");
     return ESP_ERR_INVALID_STATE;
   }
-
-#ifdef CONFIG_CAN_SKIP_HW
-  (void)can_rx_cb;
-  ESP_LOGW(TAG, "CAN hardware disabled (CONFIG_CAN_SKIP_HW) — TWAI not started");
-  return ESP_ERR_NOT_SUPPORTED;
-#endif
-
-  s_given_can_rx_cb = can_rx_cb;
 
   s_free_frame_queue = xQueueCreate(CAN_FRAME_POOL_SIZE, sizeof(can_frame_buf_t *));
   if (s_free_frame_queue == NULL) {
@@ -185,9 +189,7 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
 
   twai_event_callbacks_t user_cbs = {0};
   user_cbs.on_tx_done = can_tx_done_cb;
-  if (s_given_can_rx_cb != NULL) {
-    user_cbs.on_rx_done = can_rx_done_cb;
-  }
+  user_cbs.on_rx_done = can_rx_done_cb;
   ret = twai_node_register_event_callbacks(s_node_hdl, &user_cbs, NULL);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "twai_node_register_event_callbacks failed: %s", esp_err_to_name(ret));
@@ -200,13 +202,11 @@ esp_err_t can_init(can_rx_cb_t can_rx_cb) {
     goto cleanup;
   }
 
-  if (s_given_can_rx_cb != NULL) {
-    BaseType_t task_ret = xTaskCreate(can_rx_task, "can_rx", 8192, NULL, 5, &s_rx_task_hdl);
-    if (task_ret != pdPASS) {
-      ESP_LOGE(TAG, "Failed to create can_rx task");
-      ret = ESP_ERR_NO_MEM;
-      goto cleanup;
-    }
+  BaseType_t task_ret = xTaskCreate(can_rx_task, "can_rx", 8192, NULL, 5, &s_rx_task_hdl);
+  if (task_ret != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create can_rx task");
+    ret = ESP_ERR_NO_MEM;
+    goto cleanup;
   }
 
   ESP_LOGI(TAG, "TWAI up: %dkbps Tx%u Rx%u",

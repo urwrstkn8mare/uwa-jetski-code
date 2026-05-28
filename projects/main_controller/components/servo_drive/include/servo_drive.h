@@ -5,12 +5,31 @@
 
 #include "esp_err.h"
 
-#include "config.h"
-
 typedef uint8_t servo_channel_t;
 #define SERVO_CHANNEL_INVALID UINT8_MAX
 
 #define SERVO_MAX_INSTANCES 8
+
+/* Per-channel servo calibration: pulse-width anchors and the angles they map to.
+ * The angle range must span zero (one negative, one positive). */
+typedef struct {
+    float min_pw_us;
+    float zero_pw_us;
+    float max_pw_us;
+    float min_angle_deg;
+    float max_angle_deg;
+} servo_calibration_t;
+
+/* Calibration for the two elevon channels (persisted as a unit). */
+typedef struct {
+    servo_calibration_t channel[2];
+} servo_config_t;
+
+#define SERVO_DEFAULT_MIN_PW_US      1300.0f
+#define SERVO_DEFAULT_ZERO_PW_US     1500.0f
+#define SERVO_DEFAULT_MAX_PW_US      1800.0f
+#define SERVO_DEFAULT_MIN_ANGLE_DEG  (-8.0f)
+#define SERVO_DEFAULT_MAX_ANGLE_DEG  12.0f
 
 typedef struct {
     bool in_use;
@@ -41,6 +60,10 @@ bool servo_drive_is_cal_mode(servo_channel_t h);
 void servo_drive_apply_cal(servo_channel_t h, const servo_calibration_t *cal);
 
 void servo_drive_get_cal(servo_channel_t h, servo_calibration_t *out_cal);
+
+/* Effective usable angle magnitude: the tightest of min(|min_angle|,|max_angle|)
+ * across in-use channels. Used by the control loop to bound elevon travel. */
+float servo_drive_get_effective_range_deg(void);
 
 bool servo_drive_any_cal_mode(void);
 

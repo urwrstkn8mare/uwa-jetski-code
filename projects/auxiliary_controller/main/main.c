@@ -34,7 +34,7 @@ void app_main(void) {
     ESP_LOGW(TAG, "tdisplays3_init failed — serial only");
   }
 
-  if (can_init(NULL) != ESP_OK) {
+  if (can_init() != ESP_OK) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
 
