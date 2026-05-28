@@ -14,8 +14,8 @@
 static const char *TAG = "joystick";
 
 static adc_oneshot_unit_handle_t s_adc;
-static adc_channel_t s_bank_ch;
-static adc_channel_t s_pitch_ch;
+static adc_channel_t s_x_ch;
+static adc_channel_t s_y_ch;
 
 static uint16_t raw_to_pct(int raw, int mn, int zero, int mx) {
     int lo = mn < mx ? mn : mx;
@@ -39,45 +39,45 @@ static uint16_t raw_to_pct(int raw, int mn, int zero, int mx) {
 static void joystick_tx_task(void *arg) {
     (void)arg;
     for (;;) {
-        int bank_raw = 0, pitch_raw = 0;
-        adc_oneshot_read(s_adc, s_bank_ch, &bank_raw);
-        adc_oneshot_read(s_adc, s_pitch_ch, &pitch_raw);
+        int x_raw = 0, y_raw = 0;
+        adc_oneshot_read(s_adc, s_x_ch, &x_raw);
+        adc_oneshot_read(s_adc, s_y_ch, &y_raw);
 
-        uint16_t bank_pct  = raw_to_pct(bank_raw,  CONFIG_JOYSTICK_BANK_ADC_MIN,  CONFIG_JOYSTICK_BANK_ADC_ZERO,  CONFIG_JOYSTICK_BANK_ADC_MAX);
-        uint16_t pitch_pct = raw_to_pct(pitch_raw, CONFIG_JOYSTICK_PITCH_ADC_MIN, CONFIG_JOYSTICK_PITCH_ADC_ZERO, CONFIG_JOYSTICK_PITCH_ADC_MAX);
+        uint16_t x_pct = raw_to_pct(x_raw, CONFIG_JOYSTICK_X_ADC_MIN, CONFIG_JOYSTICK_X_ADC_ZERO, CONFIG_JOYSTICK_X_ADC_MAX);
+        uint16_t y_pct = raw_to_pct(y_raw, CONFIG_JOYSTICK_Y_ADC_MIN, CONFIG_JOYSTICK_Y_ADC_ZERO, CONFIG_JOYSTICK_Y_ADC_MAX);
 
-        can_joystick_t joy = { .bank_pct = bank_pct, .pitch_pct = pitch_pct };
+        can_joystick_t joy = { .x_pct = x_pct, .y_pct = y_pct };
         (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));
 
-        status_ui_update("Joystick", "bank=%u%% pitch=%u%%", (unsigned)bank_pct, (unsigned)pitch_pct);
+        status_ui_update("Joystick", "x=%u%% y=%u%%", (unsigned)x_pct, (unsigned)y_pct);
 
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
 esp_err_t joystick_init(void) {
-    adc_unit_t bank_u, pitch_u;
-    esp_err_t err = adc_oneshot_io_to_channel(CONFIG_JOYSTICK_BANK_GPIO, &bank_u, &s_bank_ch);
-    ESP_RETURN_ON_ERROR(err, TAG, "Bank GPIO %d not a valid ADC pin", CONFIG_JOYSTICK_BANK_GPIO);
+    adc_unit_t x_u, y_u;
+    esp_err_t err = adc_oneshot_io_to_channel(CONFIG_JOYSTICK_X_GPIO, &x_u, &s_x_ch);
+    ESP_RETURN_ON_ERROR(err, TAG, "X GPIO %d not a valid ADC pin", CONFIG_JOYSTICK_X_GPIO);
 
-    err = adc_oneshot_io_to_channel(CONFIG_JOYSTICK_PITCH_GPIO, &pitch_u, &s_pitch_ch);
-    ESP_RETURN_ON_ERROR(err, TAG, "Pitch GPIO %d not a valid ADC pin", CONFIG_JOYSTICK_PITCH_GPIO);
+    err = adc_oneshot_io_to_channel(CONFIG_JOYSTICK_Y_GPIO, &y_u, &s_y_ch);
+    ESP_RETURN_ON_ERROR(err, TAG, "Y GPIO %d not a valid ADC pin", CONFIG_JOYSTICK_Y_GPIO);
 
-    if (bank_u != pitch_u) {
-        ESP_LOGE(TAG, "Bank GPIO %d and pitch GPIO %d must be on the same ADC unit",
-                 CONFIG_JOYSTICK_BANK_GPIO, CONFIG_JOYSTICK_PITCH_GPIO);
+    if (x_u != y_u) {
+        ESP_LOGE(TAG, "X GPIO %d and Y GPIO %d must be on the same ADC unit",
+                 CONFIG_JOYSTICK_X_GPIO, CONFIG_JOYSTICK_Y_GPIO);
         return ESP_ERR_INVALID_ARG;
     }
 
-    const adc_oneshot_unit_init_cfg_t acfg = { .unit_id = bank_u, .clk_src = ADC_DIGI_CLK_SRC_DEFAULT };
+    const adc_oneshot_unit_init_cfg_t acfg = { .unit_id = x_u, .clk_src = ADC_DIGI_CLK_SRC_DEFAULT };
     err = adc_oneshot_new_unit(&acfg, &s_adc);
     ESP_RETURN_ON_ERROR(err, TAG, "adc_oneshot_new_unit failed");
 
     const adc_oneshot_chan_cfg_t chc = { .bitwidth = ADC_BITWIDTH_DEFAULT, .atten = ADC_ATTEN_DB_12 };
-    err = adc_oneshot_config_channel(s_adc, s_bank_ch, &chc);
-    ESP_RETURN_ON_ERROR(err, TAG, "ADC bank channel config failed");
-    err = adc_oneshot_config_channel(s_adc, s_pitch_ch, &chc);
-    ESP_RETURN_ON_ERROR(err, TAG, "ADC pitch channel config failed");
+    err = adc_oneshot_config_channel(s_adc, s_x_ch, &chc);
+    ESP_RETURN_ON_ERROR(err, TAG, "ADC X channel config failed");
+    err = adc_oneshot_config_channel(s_adc, s_y_ch, &chc);
+    ESP_RETURN_ON_ERROR(err, TAG, "ADC Y channel config failed");
 
     if (xTaskCreate(joystick_tx_task, "joystick_tx", 2048, NULL, 6, NULL) != pdPASS) {
         ESP_LOGE(TAG, "joystick_tx task create failed");

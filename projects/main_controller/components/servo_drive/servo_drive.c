@@ -285,24 +285,6 @@ servo_channel_t servo_drive_open(int gpio) {
     return (servo_channel_t)slot;
 }
 
-esp_err_t servo_drive_close(servo_channel_t h) {
-    if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (!s_instances[h].simulated && s_instances[h].ledc_ch != LEDC_CHANNEL_MAX) {
-        uint8_t mask = (uint8_t)(1u << s_instances[h].ledc_ch);
-        s_ledc_channel_mask &= ~mask;
-    }
-
-    s_instances[h].in_use = false;
-    s_instances[h].ready = false;
-    s_instances[h].ledc_ch = LEDC_CHANNEL_MAX;
-    recompute_effective_range();
-    ESP_LOGI(TAG, "servo close: slot=%d", h);
-    return ESP_OK;
-}
-
 void servo_drive_set_degrees(servo_channel_t h, float deg) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
     float lo = fminf(s_instances[h].cal.min_angle_deg, s_instances[h].cal.max_angle_deg);
@@ -325,23 +307,10 @@ void servo_drive_set_raw_us(servo_channel_t h, float pulse_us) {
     s_instances[h].dirty = true;
 }
 
-void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg) {
-    if (out_deg) {
-        *out_deg = 0.0f;
-    }
-    if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
-    if (out_deg) *out_deg = s_instances[h].cmd_deg;
-}
-
 void servo_drive_set_cal_mode(servo_channel_t h, bool on) {
     if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return;
     s_instances[h].cal_mode = on;
     s_instances[h].dirty = true;
-}
-
-bool servo_drive_is_cal_mode(servo_channel_t h) {
-    if (h >= SERVO_MAX_INSTANCES || !s_instances[h].in_use) return false;
-    return s_instances[h].cal_mode;
 }
 
 void servo_drive_apply_cal(servo_channel_t h, const servo_calibration_t *cal) {
@@ -372,13 +341,6 @@ bool servo_drive_any_cal_mode(void) {
         if (s_instances[i].in_use && s_instances[i].cal_mode) return true;
     }
     return false;
-}
-
-bool servo_drive_all_ready(void) {
-    for (int i = 0; i < SERVO_MAX_INSTANCES; i++) {
-        if (s_instances[i].in_use && !s_instances[i].ready) return false;
-    }
-    return true;
 }
 
 int servo_drive_get_count(void) {

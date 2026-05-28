@@ -35,6 +35,7 @@ static const control_config_t s_control_defaults = {
     .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
     .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
     .elevon_max_diff_deg  = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
+    .height_target_cm     = CONTROL_DEFAULT_HEIGHT_TARGET_CM,
 };
 
 typedef struct {
@@ -47,14 +48,13 @@ typedef struct {
 
 static control_config_t s_cfg;
 static bool s_armed;
-static int16_t s_target_height_cm;
 
 static servo_channel_t s_servo_left  = SERVO_CHANNEL_INVALID;
 static servo_channel_t s_servo_right = SERVO_CHANNEL_INVALID;
 
-/* Latest joystick values from the aux controller (0..100, 50 = centre). */
-static volatile uint16_t s_joy_bank_pct  = 50;
-static volatile uint16_t s_joy_pitch_pct = 50;
+/* Latest joystick y axis value from the aux controller (0..100, 50 = centre).
+ * x axis is broadcast but currently unused by control. */
+static volatile uint16_t s_joy_y_pct = 50;
 
 /* PID integrator state */
 static float s_height_integral;
@@ -134,7 +134,7 @@ static void control_compute(int16_t height_cm,
                             float pitch_deg,
                             float roll_deg,
                             float rudder_angle,
-                            uint16_t joy_pitch_pct,
+                            uint16_t joy_y_pct,
                             control_output_t *out) {
     const float dt = 0.02f;
 
@@ -157,7 +157,7 @@ static void control_compute(int16_t height_cm,
     if (max_center < 0.0f) max_center = 0.0f;
 
     /* Joystick always accumulates a pitch trim offset regardless of height mode. */
-    float joy_norm = ((float)joy_pitch_pct / 50.0f) - 1.0f;
+    float joy_norm = ((float)joy_y_pct / 50.0f) - 1.0f;
     if (joy_norm >  1.0f) joy_norm =  1.0f;
     if (joy_norm < -1.0f) joy_norm = -1.0f;
     if (fabsf(joy_norm) < 0.05f) joy_norm = 0.0f;
@@ -167,7 +167,7 @@ static void control_compute(int16_t height_cm,
 
     float pitch_target;
     if (s_cfg.height_enabled) {
-        float height_error = (float)(s_target_height_cm - height_cm);
+        float height_error = (float)(s_cfg.height_target_cm - height_cm);
         pitch_target = apply_pid(height_error, kp_h, ki_h, kd_h, dt,
                                  &s_height_integral, &s_height_prev_error, &s_height_first);
         pitch_target += s_manual_pitch_target;
@@ -232,7 +232,7 @@ static void ctrl_task(void *arg) {
         height_get_cm(&height_cm);
 
         control_output_t out;
-        control_compute((int16_t)height_cm, pitch, roll, rudder_angle, s_joy_pitch_pct, &out);
+        control_compute((int16_t)height_cm, pitch, roll, rudder_angle, s_joy_y_pct, &out);
 
         if (!servo_drive_any_cal_mode()) {
             float l = out.armed ? out.elevon_left_deg  : 0.0f;
@@ -284,7 +284,7 @@ static void ctrl_tlm_task(void *arg) {
         control_output_t out = s_last_out;
 
         can_ctrl_status_t cs = {
-            .height_target_cm     = (uint8_t)(s_target_height_cm < 0 ? 0 : s_target_height_cm > 100 ? 100 : s_target_height_cm),
+            .height_target_cm     = (uint8_t)(s_cfg.height_target_cm < 0 ? 0 : s_cfg.height_target_cm > 100 ? 100 : s_cfg.height_target_cm),
             .pitch_target_deg_x10 = (int16_t)(out.pitch_target_deg * 10.0f),
             .roll_target_deg_x10  = (int16_t)(out.roll_target_deg  * 10.0f),
             .flags                = s_armed ? 1u : 0u,
@@ -305,15 +305,14 @@ static void ctrl_tlm_task(void *arg) {
 
         status_ui_update("Control", "%s target=%d ht=%d L=%.2f R=%.2f",
                          s_armed ? "ARMED" : "DISARM",
-                         (int)s_target_height_cm, (int)height_cm,
+                         (int)s_cfg.height_target_cm, (int)height_cm,
                          (double)out.elevon_left_deg, (double)out.elevon_right_deg);
         status_ui_update("Limits", "max=%.2f ctr=%.2f diff=%.2f",
                          (double)max_angle, (double)max_center, (double)max_diff);
         status_ui_update("Elevon", "C=%.2f D=%.2f", (double)center, (double)diff);
         status_ui_update("Setpts", "ht=%d pt=%.2f rl=%.2f",
-                         (int)s_target_height_cm, (double)out.pitch_target_deg, (double)out.roll_target_deg);
-        status_ui_update("Joy", "bank=%u%% pitch=%u%%",
-                         (unsigned)s_joy_bank_pct, (unsigned)s_joy_pitch_pct);
+                         (int)s_cfg.height_target_cm, (double)out.pitch_target_deg, (double)out.roll_target_deg);
+        status_ui_update("Joy", "y=%u%%", (unsigned)s_joy_y_pct);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -326,8 +325,7 @@ static void joystick_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t
     }
     can_joystick_t joy;
     memcpy(&joy, buffer, sizeof(joy));
-    s_joy_bank_pct  = (joy.bank_pct  > 100u) ? 100u : joy.bank_pct;
-    s_joy_pitch_pct = (joy.pitch_pct > 100u) ? 100u : joy.pitch_pct;
+    s_joy_y_pct = (joy.y_pct > 100u) ? 100u : joy.y_pct;
 }
 
 esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right) {
@@ -337,7 +335,6 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right) 
     s_servo_left  = servo_left;
     s_servo_right = servo_right;
     s_armed = false;
-    s_target_height_cm = 0;
     reset_integrals();
     s_armed_perf    = (perf_stats_t){.min_us = UINT32_MAX};
     s_disarmed_perf = (perf_stats_t){.min_us = UINT32_MAX};
@@ -356,13 +353,15 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right) 
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Control initialized, armed=%d target=%d", s_armed, s_target_height_cm);
+    ESP_LOGI(TAG, "Control initialized, armed=%d target=%d", s_armed, s_cfg.height_target_cm);
     return ESP_OK;
 }
 
 void control_apply_cfg(const control_config_t *cfg) {
     if (cfg == NULL) return;
     s_cfg = *cfg;
+    if (s_cfg.height_target_cm < 0)  s_cfg.height_target_cm = 0;
+    if (s_cfg.height_target_cm > 50) s_cfg.height_target_cm = 50;
     reset_integrals();
     (void)config_set_blob(CONTROL_NVS_KEY, &s_cfg, sizeof(s_cfg));
 }
@@ -390,23 +389,14 @@ void control_disarm(void) {
     if (s_armed) {
         s_armed = false;
         reset_integrals();
-        s_target_height_cm = 0;
         ESP_LOGI(TAG, "Disarmed");
         if (s_change_cb) s_change_cb();
     }
 }
 
-void control_set_target(int16_t height_cm) {
-    if (height_cm < 0) height_cm = 0;
-    if (height_cm > 50) height_cm = 50;
-    s_target_height_cm = height_cm;
-}
-
 void control_get_status(control_status_t *out) {
     if (out == NULL) return;
     out->armed             = s_armed;
-    out->target_cm         = s_target_height_cm;
     out->elevon_left_deg   = s_last_out.elevon_left_deg;
     out->elevon_right_deg  = s_last_out.elevon_right_deg;
-    out->height_enabled    = s_cfg.height_enabled;
 }

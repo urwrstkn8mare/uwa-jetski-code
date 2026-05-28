@@ -24,11 +24,6 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 .card-row:last-child{border-bottom:none}
 .card-row label{font-size:13px;color:#aaa}
 .card-row .value{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
-.slider-group{margin:16px 0}
-.slider-group label{display:block;font-size:13px;color:#aaa;margin-bottom:6px}
-.slider-group input[type=range]{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:#0f3460;border-radius:3px;outline:none}
-.slider-group input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#4ecca3;cursor:pointer}
-.slider-value{text-align:center;font-size:28px;font-weight:700;color:#4ecca3;margin:8px 0}
 .btn-group{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
 .btn{flex:1;padding:12px;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;transition:.2s;min-width:140px}
 .btn-arm{background:#4ecca3;color:#1a1a2e}.btn-disarm{background:#e94560;color:#fff}.btn-save{background:#0f3460;color:#4ecca3;border:1px solid #4ecca3}
@@ -86,27 +81,9 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 </div>
 
 <div id="panel-control" class="panel active">
-<div class="card">
-<h3>Target Height</h3>
-<div class="slider-group">
-<input type="range" id="heightSlider" min="0" max="50" value="0" step="1">
-<div class="slider-value"><span id="heightValue">0</span> cm</div>
-</div>
-</div>
 <div class="btn-group">
 <button class="btn btn-arm" id="btnArm">ARM</button>
 <button class="btn btn-disarm" id="btnDisarm">DISARM</button>
-</div>
-<div class="card">
-<h3>Height Control</h3>
-<div class="card-row">
-<label>Height loop enabled</label>
-<label style="display:flex;align-items:center;gap:8px">
-<input type="checkbox" id="chkHeightEnabled" style="width:18px;height:18px;accent-color:#4ecca3">
-<span id="heightEnabledLabel" style="font-size:13px;color:#4ecca3">ON</span>
-</label>
-</div>
-<div class="hint">When off, joystick up/down axis controls pitch angle directly.</div>
 </div>
 <div class="telemetry-row">
 <div class="telemetry-item"><div class="label">L Elevon</div><div class="val t-green" id="tElevonL">--</div></div>
@@ -118,12 +95,20 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div id="panel-config" class="panel">
 <div class="card">
 <div class="cfg-section">
-<h4>Height PID</h4>
+<h4>Height</h4>
+<div class="cfg-grid">
+<div class="cfg-group"><label>Target (cm)</label><input type="number" id="cfg_height_target_cm" step="1" min="0" max="50"></div>
+<div class="cfg-group" style="grid-column:span 2"><label style="display:flex;align-items:center;gap:8px">
+<input type="checkbox" id="chkHeightEnabled" style="width:18px;height:18px;accent-color:#4ecca3">
+<span id="heightEnabledLabel" style="font-size:13px;color:#4ecca3">Loop ON</span>
+</label></div>
+</div>
 <div class="cfg-grid">
 <div class="cfg-group"><label>P</label><input type="number" id="cfg_height_kp" step="1"></div>
 <div class="cfg-group"><label>I</label><input type="number" id="cfg_height_ki" step="1"></div>
 <div class="cfg-group"><label>D</label><input type="number" id="cfg_height_kd" step="1"></div>
 </div>
+<div class="hint">When the height loop is off, joystick y axis controls pitch angle directly.</div>
 </div>
 <div class="cfg-section">
 <h4>Pitch PID</h4>
@@ -194,19 +179,11 @@ function connectSSE() {
             $('headerCal').textContent = calMode ? 'CAL' : '';
             $('btnArm').disabled = calMode;
         }
-        if ('target_cm' in d) {
-            $('heightSlider').value = d.target_cm;
-            $('heightValue').textContent = d.target_cm;
-        }
         if ('elevon_left_deg' in d) {
             $('tElevonL').textContent = Number(d.elevon_left_deg).toFixed(2) + '°';
         }
         if ('elevon_right_deg' in d) {
             $('tElevonR').textContent = Number(d.elevon_right_deg).toFixed(2) + '°';
-        }
-        if ('height_enabled' in d) {
-            $('chkHeightEnabled').checked = d.height_enabled;
-            $('heightEnabledLabel').textContent = d.height_enabled ? 'ON' : 'OFF';
         }
         if (d.type === 'servo' && d.handle !== undefined) {
             updateServoCard(d.handle, d);
@@ -233,17 +210,6 @@ document.querySelectorAll('.tabs button').forEach(btn => {
     });
 });
 
-$('heightSlider').addEventListener('input', () => {
-    $('heightValue').textContent = $('heightSlider').value;
-});
-$('heightSlider').addEventListener('change', () => {
-    fetch(API + '/api/target', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({height_cm: parseInt($('heightSlider').value)})
-    });
-});
-
 $('btnArm').addEventListener('click', () => {
     fetch(API + '/api/arm', {method:'POST'}).catch(() => {});
 });
@@ -252,13 +218,7 @@ $('btnDisarm').addEventListener('click', () => {
 });
 
 $('chkHeightEnabled').addEventListener('change', () => {
-    const enabled = $('chkHeightEnabled').checked;
-    $('heightEnabledLabel').textContent = enabled ? 'ON' : 'OFF';
-    fetch(API + '/api/config', {
-        method: 'PUT',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({height_enabled: enabled})
-    }).catch(() => {});
+    $('heightEnabledLabel').textContent = $('chkHeightEnabled').checked ? 'Loop ON' : 'Loop OFF';
 });
 
 $('btnSaveConfig').addEventListener('click', () => {
@@ -267,7 +227,7 @@ $('btnSaveConfig').addEventListener('click', () => {
         'pitch_kp','pitch_ki','pitch_kd',
         'roll_kp','roll_ki','roll_kd',
         'rudder_exponent_x100','rudder_max_roll_deg',
-        'elevon_max_diff_deg'
+        'elevon_max_diff_deg','height_target_cm'
     ];
     const data = {};
     fields.forEach(f => { data[f] = parseFloat($('cfg_'+f).value) || 0; });
@@ -292,7 +252,7 @@ function loadConfig() {
             'pitch_kp','pitch_ki','pitch_kd',
             'roll_kp','roll_ki','roll_kd',
             'rudder_exponent_x100','rudder_max_roll_deg',
-            'elevon_max_diff_deg'
+            'elevon_max_diff_deg','height_target_cm'
         ];
         fields.forEach(f => {
             const el = $('cfg_'+f);
@@ -300,7 +260,7 @@ function loadConfig() {
         });
         if (cfg.height_enabled !== undefined) {
             $('chkHeightEnabled').checked = cfg.height_enabled;
-            $('heightEnabledLabel').textContent = cfg.height_enabled ? 'ON' : 'OFF';
+            $('heightEnabledLabel').textContent = cfg.height_enabled ? 'Loop ON' : 'Loop OFF';
         }
     }).catch(() => {});
 }

@@ -45,17 +45,15 @@ esp_err_t servo_drive_init_hw(void);
 
 servo_channel_t servo_drive_open(int gpio_num);
 
-esp_err_t servo_drive_close(servo_channel_t h);
-
+/* Set the commanded angle (clamped to the channel's calibrated range) and push
+ * it to PWM hardware. Silently ignored if the handle is invalid. */
 void servo_drive_set_degrees(servo_channel_t h, float deg);
 
+/* Drive a raw pulse width in microseconds, bypassing the angle calibration.
+ * Only honoured while the channel is in calibration mode; otherwise no-op. */
 void servo_drive_set_raw_us(servo_channel_t h, float pulse_us);
 
-void servo_drive_get_commanded_degrees(servo_channel_t h, float *out_deg);
-
 void servo_drive_set_cal_mode(servo_channel_t h, bool on);
-
-bool servo_drive_is_cal_mode(servo_channel_t h);
 
 void servo_drive_apply_cal(servo_channel_t h, const servo_calibration_t *cal);
 
@@ -66,8 +64,6 @@ void servo_drive_get_cal(servo_channel_t h, servo_calibration_t *out_cal);
 float servo_drive_get_effective_range_deg(void);
 
 bool servo_drive_any_cal_mode(void);
-
-bool servo_drive_all_ready(void);
 
 int servo_drive_get_count(void);
 

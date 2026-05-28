@@ -19,10 +19,11 @@ typedef struct {
     int32_t roll_kd;
     int16_t rudder_exponent_x100;
     int16_t rudder_max_roll_deg;
-    /* When false, height PID is bypassed and the joystick pitch axis sets the
+    /* When false, height PID is bypassed and the joystick y axis sets the
      * pitch target directly. */
     bool    height_enabled;
     int16_t elevon_max_diff_deg;  /* max elevon differential (roll authority) */
+    int16_t height_target_cm;     /* desired hover height in cm, 0..50 */
 } control_config_t;
 
 #define CONTROL_DEFAULT_HEIGHT_KP  100
@@ -38,23 +39,19 @@ typedef struct {
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
 #define CONTROL_DEFAULT_HEIGHT_ENABLED        true
 #define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   5
+#define CONTROL_DEFAULT_HEIGHT_TARGET_CM      0
 
 /* Snapshot of control state for display/telemetry consumers. */
 typedef struct {
     bool    armed;
-    int16_t target_cm;
     float   elevon_left_deg;
     float   elevon_right_deg;
-    bool    height_enabled;
 } control_status_t;
 
-/* Initialise the control loop and start its tasks.
- *
- * Loads the persisted control config (falling back to defaults), registers a
- * joystick CAN receiver, then starts the high-priority control task
- * (sense → PID → command servos) and a low-priority telemetry task. The two
- * servo channels are commanded by the control task; the caller retains
- * ownership for calibration. */
+/* Initialise the control loop and start its tasks. Loads persisted config
+ * (falling back to defaults), registers a joystick CAN receiver, then starts
+ * the high-priority control task (sense → PID → command servos) and a
+ * low-priority telemetry task. */
 esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right);
 
 /* Apply a new control config: update the running loop and persist it. */
@@ -63,8 +60,6 @@ void control_get_cfg(control_config_t *cfg);
 
 void control_arm(void);
 void control_disarm(void);
-
-void control_set_target(int16_t height_cm);
 
 void control_get_status(control_status_t *out);
 

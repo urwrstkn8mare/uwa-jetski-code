@@ -100,17 +100,13 @@ static int build_state_json(char *buf, size_t sz) {
         "{"
         "\"armed\":%s,"
         "\"cal_mode\":%s,"
-        "\"target_cm\":%d,"
         "\"elevon_left_deg\":%.1f,"
-        "\"elevon_right_deg\":%.1f,"
-        "\"height_enabled\":%s"
+        "\"elevon_right_deg\":%.1f"
         "}",
         st.armed ? "true" : "false",
         servo_drive_any_cal_mode() ? "true" : "false",
-        st.target_cm,
         (double)st.elevon_left_deg,
-        (double)st.elevon_right_deg,
-        st.height_enabled ? "true" : "false");
+        (double)st.elevon_right_deg);
 }
 
 static void sse_push_state(void) {
@@ -366,6 +362,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
+        "\"height_target_cm\":%d,"
         "\"servo0_min_pw_us\":%.2f,\"servo0_zero_pw_us\":%.2f,\"servo0_max_pw_us\":%.2f,\"servo0_min_angle_deg\":%.2f,\"servo0_max_angle_deg\":%.2f,"
         "\"servo1_min_pw_us\":%.2f,\"servo1_zero_pw_us\":%.2f,\"servo1_max_pw_us\":%.2f,\"servo1_min_angle_deg\":%.2f,\"servo1_max_angle_deg\":%.2f"
         "}",
@@ -376,6 +373,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
+        (int)ctrl.height_target_cm,
         (double)s0.min_pw_us, (double)s0.zero_pw_us, (double)s0.max_pw_us,
         (double)s0.min_angle_deg, (double)s0.max_angle_deg,
         (double)s1.min_pw_us, (double)s1.zero_pw_us, (double)s1.max_pw_us,
@@ -419,6 +417,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(rudder_exponent_x100, "\"rudder_exponent_x100\"")
     PARSE_I16(rudder_max_roll_deg,  "\"rudder_max_roll_deg\"")
     PARSE_I16(elevon_max_diff_deg,  "\"elevon_max_diff_deg\"")
+    PARSE_I16(height_target_cm,     "\"height_target_cm\"")
     if (has_key(buf, "\"height_enabled\"")) {
         ctrl.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
     }
@@ -443,28 +442,6 @@ static esp_err_t api_arm(httpd_req_t *req) {
 
 static esp_err_t api_disarm(httpd_req_t *req) {
     control_disarm();
-    return json_ok_resp(req);
-}
-
-static esp_err_t api_set_target(httpd_req_t *req) {
-    size_t buf_sz = req->content_len;
-    if (buf_sz > 128) return json_error_resp(req, "payload too large");
-
-    char *buf = malloc(buf_sz + 1);
-    if (!buf) return json_error_resp(req, "no mem");
-
-    int ret = httpd_req_recv(req, buf, buf_sz);
-    if (ret <= 0) {
-        free(buf);
-        return json_error_resp(req, "recv failed");
-    }
-    buf[buf_sz] = 0;
-
-    int16_t h = (int16_t)parse_number(buf, "\"height_cm\"");
-    free(buf);
-
-    control_set_target(h);
-
     return json_ok_resp(req);
 }
 
@@ -556,7 +533,6 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/config",   .method = HTTP_PUT,  .handler = api_put_config},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
     {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
-    {.uri = "/api/target",   .method = HTTP_POST, .handler = api_set_target},
 };
 
 static esp_err_t http_server_init(void) {

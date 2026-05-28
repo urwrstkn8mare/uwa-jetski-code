@@ -1,51 +1,51 @@
 menu "UWA Jetski - Joystick potentiometers"
 
-    comment "Bank axis (left/right — controls roll via elevons)"
+    comment "X axis (left/right)"
 
-    config JOYSTICK_BANK_GPIO
-        int "Bank pot ADC GPIO"
+    config JOYSTICK_X_GPIO
+        int "X pot ADC GPIO"
         range 1 48
         default 18
 
-    config JOYSTICK_BANK_ADC_MIN
-        int "Bank pot raw ADC at 0% (full left)"
+    config JOYSTICK_X_ADC_MIN
+        int "X pot raw ADC at 0% (full left)"
         default 0
 
-    config JOYSTICK_BANK_ADC_ZERO
-        int "Bank pot raw ADC at 50% (centre)"
+    config JOYSTICK_X_ADC_ZERO
+        int "X pot raw ADC at 50% (centre)"
         default 2047
         help
             ADC reading when the stick is centred. Always maps to exactly 50%.
             The range below this scales to 0..50% and above scales to 50..100%,
             so an off-centre physical zero does not introduce a dead-band or offset.
 
-    config JOYSTICK_BANK_ADC_MAX
-        int "Bank pot raw ADC at 100% (full right)"
+    config JOYSTICK_X_ADC_MAX
+        int "X pot raw ADC at 100% (full right)"
         default 4095
 
-    comment "Pitch axis (up/down — controls pitch via elevons)"
+    comment "Y axis (up/down)"
 
-    config JOYSTICK_PITCH_GPIO
-        int "Pitch pot ADC GPIO"
+    config JOYSTICK_Y_GPIO
+        int "Y pot ADC GPIO"
         range 1 48
         default 19
         help
-            Must be on the same ADC unit as the bank pot GPIO.
+            Must be on the same ADC unit as the X pot GPIO.
 
-    config JOYSTICK_PITCH_ADC_MIN
-        int "Pitch pot raw ADC at 0% (full down)"
+    config JOYSTICK_Y_ADC_MIN
+        int "Y pot raw ADC at 0% (full down)"
         default 0
 
-    config JOYSTICK_PITCH_ADC_ZERO
-        int "Pitch pot raw ADC at 50% (centre)"
+    config JOYSTICK_Y_ADC_ZERO
+        int "Y pot raw ADC at 50% (centre)"
         default 2047
         help
             ADC reading when the stick is centred. Always maps to exactly 50%.
             The range below this scales to 0..50% and above scales to 50..100%,
             so an off-centre physical zero does not introduce a dead-band or offset.
 
-    config JOYSTICK_PITCH_ADC_MAX
-        int "Pitch pot raw ADC at 100% (full up)"
+    config JOYSTICK_Y_ADC_MAX
+        int "Y pot raw ADC at 100% (full up)"
         default 4095
 
 endmenu
