@@ -27,6 +27,7 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 .btn-group{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
 .btn{flex:1;padding:12px;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;transition:.2s;min-width:140px}
 .btn-arm{background:#4ecca3;color:#1a1a2e}.btn-disarm{background:#e94560;color:#fff}.btn-save{background:#0f3460;color:#4ecca3;border:1px solid #4ecca3}
+.btn-reset{background:#0f3460;color:#ffd93d;border:1px solid #ffd93d}
 .btn-cal-on{background:#ffd93d;color:#1a1a2e}.btn-cal-off{background:#0f3460;color:#888;border:1px solid #333}
 .btn:active{transform:scale(.97)}
 .btn:disabled{opacity:0.4;cursor:not-allowed}
@@ -131,8 +132,12 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div class="cfg-grid">
 <div class="cfg-group"><label>Exponent ×100</label><input type="number" id="cfg_rudder_exponent_x100" step="1"></div>
 <div class="cfg-group"><label>Max Roll °</label><input type="number" id="cfg_rudder_max_roll_deg" step="1"></div>
-<div class="cfg-group"></div>
+<div class="cfg-group" style="display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:8px">
+<input type="checkbox" id="chkJoystickRollEnabled" style="width:18px;height:18px;accent-color:#4ecca3">
+<span id="joystickRollEnabledLabel" style="font-size:13px;color:#4ecca3">Joy roll ON</span>
+</label></div>
 </div>
+<div class="hint">Joystick x axis trims the roll target on top of the rudder. Disable to freeze the current offset.</div>
 </div>
 
 <div class="cfg-section">
@@ -143,8 +148,12 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div class="cfg-group"></div>
 </div>
 </div>
+<div class="btn-group">
 <button class="btn btn-save" id="btnSaveConfig">Save Config</button>
+<button class="btn btn-reset" id="btnResetConfig">Reset to Defaults</button>
+</div>
 <span id="saveMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
+<div class="hint">Reset populates the form with defaults — click Save Config to persist.</div>
 </div>
 </div>
 
@@ -221,6 +230,10 @@ $('chkHeightEnabled').addEventListener('change', () => {
     $('heightEnabledLabel').textContent = $('chkHeightEnabled').checked ? 'Loop ON' : 'Loop OFF';
 });
 
+$('chkJoystickRollEnabled').addEventListener('change', () => {
+    $('joystickRollEnabledLabel').textContent = $('chkJoystickRollEnabled').checked ? 'Joy roll ON' : 'Joy roll OFF';
+});
+
 $('btnSaveConfig').addEventListener('click', () => {
     const fields = [
         'height_kp','height_ki','height_kd',
@@ -232,6 +245,7 @@ $('btnSaveConfig').addEventListener('click', () => {
     const data = {};
     fields.forEach(f => { data[f] = parseFloat($('cfg_'+f).value) || 0; });
     data.height_enabled = $('chkHeightEnabled').checked;
+    data.joystick_roll_enabled = $('chkJoystickRollEnabled').checked;
     fetch(API + '/api/config', {
         method: 'PUT',
         headers: {'Content-Type':'application/json'},
@@ -245,25 +259,43 @@ $('btnSaveConfig').addEventListener('click', () => {
     });
 });
 
-function loadConfig() {
-    fetch(API + '/api/config').then(r => r.json()).then(cfg => {
-        const fields = [
-            'height_kp','height_ki','height_kd',
-            'pitch_kp','pitch_ki','pitch_kd',
-            'roll_kp','roll_ki','roll_kd',
-            'rudder_exponent_x100','rudder_max_roll_deg',
-            'elevon_max_diff_deg','pitch_target_max_deg','height_target_cm'
-        ];
-        fields.forEach(f => {
-            const el = $('cfg_'+f);
-            if (el && cfg[f] !== undefined) el.value = cfg[f];
-        });
-        if (cfg.height_enabled !== undefined) {
-            $('chkHeightEnabled').checked = cfg.height_enabled;
-            $('heightEnabledLabel').textContent = cfg.height_enabled ? 'Loop ON' : 'Loop OFF';
-        }
-    }).catch(() => {});
+function populateConfigForm(cfg) {
+    const fields = [
+        'height_kp','height_ki','height_kd',
+        'pitch_kp','pitch_ki','pitch_kd',
+        'roll_kp','roll_ki','roll_kd',
+        'rudder_exponent_x100','rudder_max_roll_deg',
+        'elevon_max_diff_deg','pitch_target_max_deg','height_target_cm'
+    ];
+    fields.forEach(f => {
+        const el = $('cfg_'+f);
+        if (el && cfg[f] !== undefined) el.value = cfg[f];
+    });
+    if (cfg.height_enabled !== undefined) {
+        $('chkHeightEnabled').checked = cfg.height_enabled;
+        $('heightEnabledLabel').textContent = cfg.height_enabled ? 'Loop ON' : 'Loop OFF';
+    }
+    if (cfg.joystick_roll_enabled !== undefined) {
+        $('chkJoystickRollEnabled').checked = cfg.joystick_roll_enabled;
+        $('joystickRollEnabledLabel').textContent = cfg.joystick_roll_enabled ? 'Joy roll ON' : 'Joy roll OFF';
+    }
 }
+
+function loadConfig() {
+    fetch(API + '/api/config').then(r => r.json()).then(populateConfigForm).catch(() => {});
+}
+
+$('btnResetConfig').addEventListener('click', () => {
+    if (!confirm('Reset all control config fields to defaults?\n(Form will be populated; click Save Config to persist.)')) return;
+    fetch(API + '/api/config/defaults').then(r => r.json()).then(cfg => {
+        populateConfigForm(cfg);
+        $('saveMsg').textContent = 'Defaults loaded';
+        setTimeout(() => $('saveMsg').textContent = '', 2000);
+    }).catch(() => {
+        $('saveMsg').textContent = 'Error';
+        setTimeout(() => $('saveMsg').textContent = '', 2000);
+    });
+});
 
 function loadServos() {
     fetch(API + '/api/servos').then(r => r.json()).then(servos => {

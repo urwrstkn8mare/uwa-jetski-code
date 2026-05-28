@@ -211,7 +211,7 @@ esp_err_t can_init(void) {
 
   ESP_LOGI(TAG, "TWAI up: %dkbps Tx%u Rx%u",
            CONFIG_CAN_BITRATE / 1000, (unsigned)CONFIG_CANTX, (unsigned)CONFIG_CANRX);
-  xTaskCreate(can_diag_task, "can_diag", 2048, NULL, 3, &s_diag_task_hdl);
+  xTaskCreate(can_diag_task, "can_diag", 4096, NULL, 3, &s_diag_task_hdl);
   return ESP_OK;
 
 cleanup:

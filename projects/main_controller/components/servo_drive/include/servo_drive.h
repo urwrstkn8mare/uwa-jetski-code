@@ -28,8 +28,8 @@ typedef struct {
 #define SERVO_DEFAULT_MIN_PW_US      1300.0f
 #define SERVO_DEFAULT_ZERO_PW_US     1500.0f
 #define SERVO_DEFAULT_MAX_PW_US      1800.0f
-#define SERVO_DEFAULT_MIN_ANGLE_DEG  (-8.0f)
-#define SERVO_DEFAULT_MAX_ANGLE_DEG  12.0f
+#define SERVO_DEFAULT_MIN_ANGLE_DEG  (-30.0f)
+#define SERVO_DEFAULT_MAX_ANGLE_DEG  30.0f
 
 typedef struct {
     bool in_use;

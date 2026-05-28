@@ -31,10 +31,11 @@ static const control_config_t s_control_defaults = {
     .roll_kp   = CONTROL_DEFAULT_ROLL_KP,
     .roll_ki   = CONTROL_DEFAULT_ROLL_KI,
     .roll_kd   = CONTROL_DEFAULT_ROLL_KD,
-    .rudder_exponent_x100 = CONTROL_DEFAULT_RUDDER_EXPONENT_X100,
-    .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
-    .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
-    .elevon_max_diff_deg  = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
+    .rudder_exponent_x100  = CONTROL_DEFAULT_RUDDER_EXPONENT_X100,
+    .rudder_max_roll_deg   = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
+    .height_enabled        = CONTROL_DEFAULT_HEIGHT_ENABLED,
+    .joystick_roll_enabled = CONTROL_DEFAULT_JOYSTICK_ROLL_ENABLED,
+    .elevon_max_diff_deg   = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
     .pitch_target_max_deg = CONTROL_DEFAULT_PITCH_TARGET_MAX_DEG,
     .height_target_cm     = CONTROL_DEFAULT_HEIGHT_TARGET_CM,
 };
@@ -53,8 +54,8 @@ static bool s_armed;
 static servo_channel_t s_servo_left  = SERVO_CHANNEL_INVALID;
 static servo_channel_t s_servo_right = SERVO_CHANNEL_INVALID;
 
-/* Latest joystick y axis value from the aux controller (0..100, 50 = centre).
- * x axis is broadcast but currently unused by control. */
+/* Latest joystick axis values from the aux controller (0..100, 50 = centre). */
+static volatile uint16_t s_joy_x_pct = 50;
 static volatile uint16_t s_joy_y_pct = 50;
 
 /* PID state: integral pre-multiplied by ki (so clamping it bounds the I-term
@@ -70,8 +71,10 @@ static pid_state_t s_height_pid;
 static pid_state_t s_pitch_pid;
 static pid_state_t s_roll_pid;
 
-/* Manual pitch setpoint accumulator (rate-mode joystick) */
+/* Manual setpoint accumulators (rate-mode joystick). Persist across
+ * arm/disarm and config changes — only the joystick mutates them. */
 static float s_manual_pitch_target;
+static float s_manual_roll_target;
 
 static control_output_t s_last_out;
 static void (*s_change_cb)(void);
@@ -121,7 +124,6 @@ static void reset_integrals(void) {
     s_height_pid = (pid_state_t){.first = true};
     s_pitch_pid  = (pid_state_t){.first = true};
     s_roll_pid   = (pid_state_t){.first = true};
-    s_manual_pitch_target = 0.0f;
 }
 
 /* Pure PID computation — no I/O, no status_ui. Fills *out. */
@@ -129,6 +131,7 @@ static void control_compute(int16_t height_cm,
                             float pitch_deg,
                             float roll_deg,
                             float rudder_angle,
+                            uint16_t joy_x_pct,
                             uint16_t joy_y_pct,
                             control_output_t *out) {
     const float dt = 0.02f;
@@ -148,19 +151,33 @@ static void control_compute(int16_t height_cm,
     float kd_r = (float)s_cfg.roll_kd / 1000.0f;
 
     const float pitch_target_abs_max = (float)s_cfg.pitch_target_max_deg;
+    const float roll_target_abs_max  = (float)s_cfg.rudder_max_roll_deg;
     float max_diff   = (float)s_cfg.elevon_max_diff_deg;
     float max_center = servo_drive_get_effective_range_deg() - max_diff;
     if (max_center < 0.0f) max_center = 0.0f;
 
     /* Joystick rate-integrates into a pitch trim offset; clamped to the same
      * authority bound as the height PID output. */
-    float joy_norm = ((float)joy_y_pct / 50.0f) - 1.0f;
-    if (joy_norm >  1.0f) joy_norm =  1.0f;
-    if (joy_norm < -1.0f) joy_norm = -1.0f;
-    if (fabsf(joy_norm) < 0.05f) joy_norm = 0.0f;
-    s_manual_pitch_target += joy_norm * 20.0f * dt;
+    float joy_y_norm = ((float)joy_y_pct / 50.0f) - 1.0f;
+    if (joy_y_norm >  1.0f) joy_y_norm =  1.0f;
+    if (joy_y_norm < -1.0f) joy_y_norm = -1.0f;
+    if (fabsf(joy_y_norm) < 0.05f) joy_y_norm = 0.0f;
+    s_manual_pitch_target += joy_y_norm * 20.0f * dt;
     if (s_manual_pitch_target >  pitch_target_abs_max) s_manual_pitch_target =  pitch_target_abs_max;
     if (s_manual_pitch_target < -pitch_target_abs_max) s_manual_pitch_target = -pitch_target_abs_max;
+
+    /* Joystick x axis mirrors the pitch behaviour for a roll trim offset.
+     * When disabled, the offset is retained (not zeroed); clamping still runs
+     * in case rudder_max_roll_deg was reduced below the current value. */
+    if (s_cfg.joystick_roll_enabled) {
+        float joy_x_norm = ((float)joy_x_pct / 50.0f) - 1.0f;
+        if (joy_x_norm >  1.0f) joy_x_norm =  1.0f;
+        if (joy_x_norm < -1.0f) joy_x_norm = -1.0f;
+        if (fabsf(joy_x_norm) < 0.05f) joy_x_norm = 0.0f;
+        s_manual_roll_target += joy_x_norm * 20.0f * dt;
+    }
+    if (s_manual_roll_target >  roll_target_abs_max) s_manual_roll_target =  roll_target_abs_max;
+    if (s_manual_roll_target < -roll_target_abs_max) s_manual_roll_target = -roll_target_abs_max;
 
     float pitch_target;
     if (s_cfg.height_enabled) {
@@ -185,6 +202,9 @@ static void control_compute(int16_t height_cm,
     float abs_norm = fabsf(rudder_norm);
     float roll_target_deg = powf(abs_norm, rudder_exp) * max_roll;
     if (rudder_norm < 0.0f) roll_target_deg = -roll_target_deg;
+    roll_target_deg += s_manual_roll_target;
+    if (roll_target_deg >  max_roll) roll_target_deg =  max_roll;
+    if (roll_target_deg < -max_roll) roll_target_deg = -max_roll;
 
     float elevon_diff = apply_pid(roll_target_deg, roll_deg,
                                   kp_r, ki_r, kd_r, dt, max_diff, &s_roll_pid);
@@ -218,7 +238,8 @@ static void ctrl_task(void *arg) {
         height_get_cm(&height_cm);
 
         control_output_t out;
-        control_compute((int16_t)height_cm, pitch, roll, rudder_angle, s_joy_y_pct, &out);
+        control_compute((int16_t)height_cm, pitch, roll, rudder_angle,
+                        s_joy_x_pct, s_joy_y_pct, &out);
 
         if (!servo_drive_any_cal_mode()) {
             float l = out.armed ? out.elevon_left_deg  : 0.0f;
@@ -246,8 +267,8 @@ static void report_perf(perf_stats_t *s, bool is_armed) {
     uint32_t avg_us = (uint32_t)(s->sum_us / s->count);
     uint32_t avg_hz = avg_us > 0 ? (1000000u / avg_us) : 0;
 
-    status_ui_update(is_armed ? "perf_armed" : "perf_disarmed",
-                     "iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",
+    status_ui_update("perf" ,
+                     "%s iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",is_armed ? "armed" : "disarmed" ,
                      avg_us, s->max_us, avg_hz);
 
     can_ctrl_perf_t perf = {
@@ -298,7 +319,8 @@ static void ctrl_tlm_task(void *arg) {
         status_ui_update("Elevon", "C=%.2f D=%.2f", (double)center, (double)diff);
         status_ui_update("Setpts", "ht=%d pt=%.2f rl=%.2f",
                          (int)s_cfg.height_target_cm, (double)out.pitch_target_deg, (double)out.roll_target_deg);
-        status_ui_update("Joy", "y=%u%%", (unsigned)s_joy_y_pct);
+        status_ui_update("Joy", "x=%u%% y=%u%%",
+                         (unsigned)s_joy_x_pct, (unsigned)s_joy_y_pct);
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -311,6 +333,7 @@ static void joystick_rx_cb(const uint8_t buffer[8], uint32_t header_id, uint64_t
     }
     can_joystick_t joy;
     memcpy(&joy, buffer, sizeof(joy));
+    s_joy_x_pct = (joy.x_pct > 100u) ? 100u : joy.x_pct;
     s_joy_y_pct = (joy.y_pct > 100u) ? 100u : joy.y_pct;
 }
 
@@ -350,11 +373,18 @@ void control_apply_cfg(const control_config_t *cfg) {
     if (s_cfg.height_target_cm > 50) s_cfg.height_target_cm = 50;
     reset_integrals();
     (void)config_set_blob(CONTROL_NVS_KEY, &s_cfg, sizeof(s_cfg));
+    if (s_change_cb) s_change_cb();
 }
 
 void control_get_cfg(control_config_t *cfg) {
     if (cfg) {
         *cfg = s_cfg;
+    }
+}
+
+void control_get_defaults(control_config_t *cfg) {
+    if (cfg) {
+        *cfg = s_control_defaults;
     }
 }
 

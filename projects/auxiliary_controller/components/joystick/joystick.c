@@ -1,6 +1,7 @@
 #include "joystick.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "can.h"
 #include "can_ids.h"
@@ -46,6 +47,14 @@ static void joystick_tx_task(void *arg) {
         uint16_t x_pct = raw_to_pct(x_raw, CONFIG_JOYSTICK_X_ADC_MIN, CONFIG_JOYSTICK_X_ADC_ZERO, CONFIG_JOYSTICK_X_ADC_MAX);
         uint16_t y_pct = raw_to_pct(y_raw, CONFIG_JOYSTICK_Y_ADC_MIN, CONFIG_JOYSTICK_Y_ADC_ZERO, CONFIG_JOYSTICK_Y_ADC_MAX);
 
+        int x_dev = (int)x_pct - 50;
+        int y_dev = (int)y_pct - 50;
+        if (abs(x_dev) >= abs(y_dev)) {
+            y_pct = 50;
+        } else {
+            x_pct = 50;
+        }
+
         can_joystick_t joy = { .x_pct = x_pct, .y_pct = y_pct };
         (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));
 
@@ -79,7 +88,7 @@ esp_err_t joystick_init(void) {
     err = adc_oneshot_config_channel(s_adc, s_y_ch, &chc);
     ESP_RETURN_ON_ERROR(err, TAG, "ADC Y channel config failed");
 
-    if (xTaskCreate(joystick_tx_task, "joystick_tx", 2048, NULL, 6, NULL) != pdPASS) {
+    if (xTaskCreate(joystick_tx_task, "joystick_tx", 4096, NULL, 6, NULL) != pdPASS) {
         ESP_LOGE(TAG, "joystick_tx task create failed");
         return ESP_ERR_NO_MEM;
     }

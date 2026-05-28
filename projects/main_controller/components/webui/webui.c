@@ -361,6 +361,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"rudder_exponent_x100\":%d,"
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
+        "\"joystick_roll_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
         "\"pitch_target_max_deg\":%d,"
         "\"height_target_cm\":%d,"
@@ -373,6 +374,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)ctrl.rudder_exponent_x100,
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
+        ctrl.joystick_roll_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
         (int)ctrl.pitch_target_max_deg,
         (int)ctrl.height_target_cm,
@@ -380,6 +382,39 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (double)s0.min_angle_deg, (double)s0.max_angle_deg,
         (double)s1.min_pw_us, (double)s1.zero_pw_us, (double)s1.max_pw_us,
         (double)s1.min_angle_deg, (double)s1.max_angle_deg);
+
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
+static esp_err_t api_get_config_defaults(httpd_req_t *req) {
+    control_config_t ctrl;
+    control_get_defaults(&ctrl);
+
+    char buf[512];
+    int n = snprintf(buf, sizeof(buf),
+        "{"
+        "\"height_kp\":%ld,\"height_ki\":%ld,\"height_kd\":%ld,"
+        "\"pitch_kp\":%ld,\"pitch_ki\":%ld,\"pitch_kd\":%ld,"
+        "\"roll_kp\":%ld,\"roll_ki\":%ld,\"roll_kd\":%ld,"
+        "\"rudder_exponent_x100\":%d,"
+        "\"rudder_max_roll_deg\":%d,"
+        "\"height_enabled\":%s,"
+        "\"joystick_roll_enabled\":%s,"
+        "\"elevon_max_diff_deg\":%d,"
+        "\"pitch_target_max_deg\":%d,"
+        "\"height_target_cm\":%d"
+        "}",
+        (long)ctrl.height_kp, (long)ctrl.height_ki, (long)ctrl.height_kd,
+        (long)ctrl.pitch_kp, (long)ctrl.pitch_ki, (long)ctrl.pitch_kd,
+        (long)ctrl.roll_kp, (long)ctrl.roll_ki, (long)ctrl.roll_kd,
+        (int)ctrl.rudder_exponent_x100,
+        (int)ctrl.rudder_max_roll_deg,
+        ctrl.height_enabled ? "true" : "false",
+        ctrl.joystick_roll_enabled ? "true" : "false",
+        (int)ctrl.elevon_max_diff_deg,
+        (int)ctrl.pitch_target_max_deg,
+        (int)ctrl.height_target_cm);
 
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
@@ -423,6 +458,9 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(height_target_cm,     "\"height_target_cm\"")
     if (has_key(buf, "\"height_enabled\"")) {
         ctrl.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
+    }
+    if (has_key(buf, "\"joystick_roll_enabled\"")) {
+        ctrl.joystick_roll_enabled = strstr(buf, "\"joystick_roll_enabled\":true") != NULL;
     }
 
 #undef PARSE_INT
@@ -534,6 +572,7 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/servos/raw_pw", .method = HTTP_POST, .handler = api_post_servo_raw_pw},
     {.uri = "/api/config",   .method = HTTP_GET,  .handler = api_get_config},
     {.uri = "/api/config",   .method = HTTP_PUT,  .handler = api_put_config},
+    {.uri = "/api/config/defaults", .method = HTTP_GET, .handler = api_get_config_defaults},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
     {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
 };

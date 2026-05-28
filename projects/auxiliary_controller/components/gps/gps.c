@@ -8,6 +8,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/projdefs.h"
 #include "freertos/task.h"
 #include "lwgps/lwgps.h"
 #include "status_ui.h"
@@ -64,6 +65,9 @@ static void gps_uart_task(void *arg) {
   uart_flush_input(port);
 
   lwgps_init(&s_gps);
+
+  ESP_LOGI("GPS fix", "waiting for sentence");
+  status_ui_update("GPS fix", "waiting for sentence");
 
   for (;;) {
     uint8_t buf[384];
