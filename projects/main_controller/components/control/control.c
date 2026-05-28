@@ -267,8 +267,8 @@ static void report_perf(perf_stats_t *s, bool is_armed) {
     uint32_t avg_us = (uint32_t)(s->sum_us / s->count);
     uint32_t avg_hz = avg_us > 0 ? (1000000u / avg_us) : 0;
 
-    status_ui_update("perf", ,
-                     "%s iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",is_armed ? "armed" : "disarmed" 
+    status_ui_update("perf" ,
+                     "%s iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",is_armed ? "armed" : "disarmed" ,
                      avg_us, s->max_us, avg_hz);
 
     can_ctrl_perf_t perf = {
