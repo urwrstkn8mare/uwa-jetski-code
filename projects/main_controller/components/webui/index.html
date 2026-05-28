@@ -132,8 +132,12 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div class="cfg-grid">
 <div class="cfg-group"><label>Exponent ×100</label><input type="number" id="cfg_rudder_exponent_x100" step="1"></div>
 <div class="cfg-group"><label>Max Roll °</label><input type="number" id="cfg_rudder_max_roll_deg" step="1"></div>
-<div class="cfg-group"></div>
+<div class="cfg-group" style="display:flex;align-items:flex-end"><label style="display:flex;align-items:center;gap:8px">
+<input type="checkbox" id="chkJoystickRollEnabled" style="width:18px;height:18px;accent-color:#4ecca3">
+<span id="joystickRollEnabledLabel" style="font-size:13px;color:#4ecca3">Joy roll ON</span>
+</label></div>
 </div>
+<div class="hint">Joystick x axis trims the roll target on top of the rudder. Disable to freeze the current offset.</div>
 </div>
 
 <div class="cfg-section">
@@ -226,6 +230,10 @@ $('chkHeightEnabled').addEventListener('change', () => {
     $('heightEnabledLabel').textContent = $('chkHeightEnabled').checked ? 'Loop ON' : 'Loop OFF';
 });
 
+$('chkJoystickRollEnabled').addEventListener('change', () => {
+    $('joystickRollEnabledLabel').textContent = $('chkJoystickRollEnabled').checked ? 'Joy roll ON' : 'Joy roll OFF';
+});
+
 $('btnSaveConfig').addEventListener('click', () => {
     const fields = [
         'height_kp','height_ki','height_kd',
@@ -237,6 +245,7 @@ $('btnSaveConfig').addEventListener('click', () => {
     const data = {};
     fields.forEach(f => { data[f] = parseFloat($('cfg_'+f).value) || 0; });
     data.height_enabled = $('chkHeightEnabled').checked;
+    data.joystick_roll_enabled = $('chkJoystickRollEnabled').checked;
     fetch(API + '/api/config', {
         method: 'PUT',
         headers: {'Content-Type':'application/json'},
@@ -265,6 +274,10 @@ function populateConfigForm(cfg) {
     if (cfg.height_enabled !== undefined) {
         $('chkHeightEnabled').checked = cfg.height_enabled;
         $('heightEnabledLabel').textContent = cfg.height_enabled ? 'Loop ON' : 'Loop OFF';
+    }
+    if (cfg.joystick_roll_enabled !== undefined) {
+        $('chkJoystickRollEnabled').checked = cfg.joystick_roll_enabled;
+        $('joystickRollEnabledLabel').textContent = cfg.joystick_roll_enabled ? 'Joy roll ON' : 'Joy roll OFF';
     }
 }
 

@@ -361,6 +361,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"rudder_exponent_x100\":%d,"
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
+        "\"joystick_roll_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
         "\"pitch_target_max_deg\":%d,"
         "\"height_target_cm\":%d,"
@@ -373,6 +374,7 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)ctrl.rudder_exponent_x100,
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
+        ctrl.joystick_roll_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
         (int)ctrl.pitch_target_max_deg,
         (int)ctrl.height_target_cm,
@@ -398,6 +400,7 @@ static esp_err_t api_get_config_defaults(httpd_req_t *req) {
         "\"rudder_exponent_x100\":%d,"
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
+        "\"joystick_roll_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
         "\"pitch_target_max_deg\":%d,"
         "\"height_target_cm\":%d"
@@ -408,6 +411,7 @@ static esp_err_t api_get_config_defaults(httpd_req_t *req) {
         (int)ctrl.rudder_exponent_x100,
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
+        ctrl.joystick_roll_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
         (int)ctrl.pitch_target_max_deg,
         (int)ctrl.height_target_cm);
@@ -454,6 +458,9 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(height_target_cm,     "\"height_target_cm\"")
     if (has_key(buf, "\"height_enabled\"")) {
         ctrl.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
+    }
+    if (has_key(buf, "\"joystick_roll_enabled\"")) {
+        ctrl.joystick_roll_enabled = strstr(buf, "\"joystick_roll_enabled\":true") != NULL;
     }
 
 #undef PARSE_INT
