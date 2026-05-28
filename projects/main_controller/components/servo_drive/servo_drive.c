@@ -49,11 +49,11 @@ static ledc_timer_t s_timer_num = LEDC_TIMER_0;
 static ledc_timer_bit_t s_duty_resolution = LEDC_TIMER_14_BIT;
 
 static const servo_calibration_t s_default_cal = {
-    .min_pw_us = 1300.0f,
-    .zero_pw_us = 1500.0f,
-    .max_pw_us = 1800.0f,
-    .min_angle_deg = -8.0f,
-    .max_angle_deg = 12.0f,
+    .min_pw_us     = SERVO_DEFAULT_MIN_PW_US,
+    .zero_pw_us    = SERVO_DEFAULT_ZERO_PW_US,
+    .max_pw_us     = SERVO_DEFAULT_MAX_PW_US,
+    .min_angle_deg = SERVO_DEFAULT_MIN_ANGLE_DEG,
+    .max_angle_deg = SERVO_DEFAULT_MAX_ANGLE_DEG,
 };
 
 static float clamp_float(float v, float lo, float hi) {

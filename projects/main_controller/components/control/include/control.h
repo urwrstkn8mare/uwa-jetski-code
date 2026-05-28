@@ -28,21 +28,22 @@ typedef struct {
 } control_config_t;
 
 /* Defaults derived from the BeagleBone pilou config (current_feb26.cfg),
- * with pilou's radian/abstract units mapped into our degree/elevon units.
+ * with pilou's radian/normalised PID output mapped to our degree/elevon units
+ * over the default ±30° servo range (kP_uwa ≈ kP_pilou · 30 · π/180 ≈ kP_pilou · 0.524).
  * Height gains are zero to match the config (height loop disabled in pilou). */
 #define CONTROL_DEFAULT_HEIGHT_KP  0
 #define CONTROL_DEFAULT_HEIGHT_KI  0
 #define CONTROL_DEFAULT_HEIGHT_KD  0
-#define CONTROL_DEFAULT_PITCH_KP   26
+#define CONTROL_DEFAULT_PITCH_KP   52
 #define CONTROL_DEFAULT_PITCH_KI   0
-#define CONTROL_DEFAULT_PITCH_KD   26
-#define CONTROL_DEFAULT_ROLL_KP    44
+#define CONTROL_DEFAULT_PITCH_KD   52
+#define CONTROL_DEFAULT_ROLL_KP    262
 #define CONTROL_DEFAULT_ROLL_KI    0
-#define CONTROL_DEFAULT_ROLL_KD    35
+#define CONTROL_DEFAULT_ROLL_KD    209
 #define CONTROL_DEFAULT_RUDDER_EXPONENT_X100  300
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
 #define CONTROL_DEFAULT_HEIGHT_ENABLED        true
-#define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   5
+#define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   20
 #define CONTROL_DEFAULT_PITCH_TARGET_MAX_DEG  10
 #define CONTROL_DEFAULT_HEIGHT_TARGET_CM      35
 
@@ -62,6 +63,7 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right);
 /* Apply a new control config: update the running loop and persist it. */
 void control_apply_cfg(const control_config_t *cfg);
 void control_get_cfg(control_config_t *cfg);
+void control_get_defaults(control_config_t *cfg);
 
 void control_arm(void);
 void control_disarm(void);

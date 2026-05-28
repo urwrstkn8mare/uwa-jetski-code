@@ -350,11 +350,18 @@ void control_apply_cfg(const control_config_t *cfg) {
     if (s_cfg.height_target_cm > 50) s_cfg.height_target_cm = 50;
     reset_integrals();
     (void)config_set_blob(CONTROL_NVS_KEY, &s_cfg, sizeof(s_cfg));
+    if (s_change_cb) s_change_cb();
 }
 
 void control_get_cfg(control_config_t *cfg) {
     if (cfg) {
         *cfg = s_cfg;
+    }
+}
+
+void control_get_defaults(control_config_t *cfg) {
+    if (cfg) {
+        *cfg = s_control_defaults;
     }
 }
 
