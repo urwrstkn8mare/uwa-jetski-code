@@ -139,7 +139,7 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <h4>Elevon Limits</h4>
 <div class="cfg-grid">
 <div class="cfg-group"><label>Max diff ° (roll authority)</label><input type="number" id="cfg_elevon_max_diff_deg" step="1"></div>
-<div class="cfg-group"></div>
+<div class="cfg-group"><label>Max pitch target ° (pitch authority)</label><input type="number" id="cfg_pitch_target_max_deg" step="1"></div>
 <div class="cfg-group"></div>
 </div>
 </div>
@@ -227,7 +227,7 @@ $('btnSaveConfig').addEventListener('click', () => {
         'pitch_kp','pitch_ki','pitch_kd',
         'roll_kp','roll_ki','roll_kd',
         'rudder_exponent_x100','rudder_max_roll_deg',
-        'elevon_max_diff_deg','height_target_cm'
+        'elevon_max_diff_deg','pitch_target_max_deg','height_target_cm'
     ];
     const data = {};
     fields.forEach(f => { data[f] = parseFloat($('cfg_'+f).value) || 0; });
@@ -252,7 +252,7 @@ function loadConfig() {
             'pitch_kp','pitch_ki','pitch_kd',
             'roll_kp','roll_ki','roll_kd',
             'rudder_exponent_x100','rudder_max_roll_deg',
-            'elevon_max_diff_deg','height_target_cm'
+            'elevon_max_diff_deg','pitch_target_max_deg','height_target_cm'
         ];
         fields.forEach(f => {
             const el = $('cfg_'+f);

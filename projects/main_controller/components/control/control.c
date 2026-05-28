@@ -35,6 +35,7 @@ static const control_config_t s_control_defaults = {
     .rudder_max_roll_deg  = CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG,
     .height_enabled       = CONTROL_DEFAULT_HEIGHT_ENABLED,
     .elevon_max_diff_deg  = CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG,
+    .pitch_target_max_deg = CONTROL_DEFAULT_PITCH_TARGET_MAX_DEG,
     .height_target_cm     = CONTROL_DEFAULT_HEIGHT_TARGET_CM,
 };
 
@@ -56,20 +57,20 @@ static servo_channel_t s_servo_right = SERVO_CHANNEL_INVALID;
  * x axis is broadcast but currently unused by control. */
 static volatile uint16_t s_joy_y_pct = 50;
 
-/* PID integrator state */
-static float s_height_integral;
-static float s_height_prev_error;
-static bool  s_height_first;
+/* PID state: integral pre-multiplied by ki (so clamping it bounds the I-term
+ * contribution directly), previous measurement for derivative-on-measurement,
+ * and a first-call gate so the derivative doesn't spike from prev_input = 0. */
+typedef struct {
+    float integral;
+    float prev_input;
+    bool  first;
+} pid_state_t;
 
-static float s_pitch_integral;
-static float s_pitch_prev_error;
-static bool  s_pitch_first;
+static pid_state_t s_height_pid;
+static pid_state_t s_pitch_pid;
+static pid_state_t s_roll_pid;
 
-static float s_roll_integral;
-static float s_roll_prev_error;
-static bool  s_roll_first;
-
-/* Manual pitch setpoint accumulator (rate-mode joystick, height disabled) */
+/* Manual pitch setpoint accumulator (rate-mode joystick) */
 static float s_manual_pitch_target;
 
 static control_output_t s_last_out;
@@ -88,44 +89,38 @@ typedef struct {
 static perf_stats_t s_armed_perf;
 static perf_stats_t s_disarmed_perf;
 
-static float apply_pid(float error, float kp, float ki, float kd,
-                       float dt, float *integral, float *prev_error, bool *first) {
-    float p_term = kp * error;
+/* PID with derivative-on-measurement (no setpoint kick) and anti-windup
+ * (integral contribution clamped to ±out_abs_max, the same bound the output
+ * itself is clamped to). Output is clamped to ±out_abs_max. */
+static float apply_pid(float setpoint, float input,
+                       float kp, float ki, float kd,
+                       float dt, float out_abs_max,
+                       pid_state_t *st) {
+    float error = setpoint - input;
 
-    float i_term = 0;
-    if (ki != 0 && !(*first)) {
-        *integral += error * dt;
-        i_term = ki * (*integral);
+    if (st->first) {
+        st->prev_input = input;
+        st->integral = 0.0f;
+        st->first = false;
     }
 
-    float d_term = 0;
-    if (kd != 0 && !(*first)) {
-        float dedt = (error - *prev_error) / dt;
-        d_term = kd * dedt;
-    }
+    st->integral += ki * error * dt;
+    if (st->integral >  out_abs_max) st->integral =  out_abs_max;
+    if (st->integral < -out_abs_max) st->integral = -out_abs_max;
 
-    if (*first) {
-        *first = false;
-    }
+    float d_input = (input - st->prev_input) / dt;
+    st->prev_input = input;
 
-    *prev_error = error;
-
-    return p_term + i_term + d_term;
+    float out = kp * error + st->integral - kd * d_input;
+    if (out >  out_abs_max) out =  out_abs_max;
+    if (out < -out_abs_max) out = -out_abs_max;
+    return out;
 }
 
 static void reset_integrals(void) {
-    s_height_integral = 0;
-    s_height_prev_error = 0;
-    s_height_first = true;
-
-    s_pitch_integral = 0;
-    s_pitch_prev_error = 0;
-    s_pitch_first = true;
-
-    s_roll_integral = 0;
-    s_roll_prev_error = 0;
-    s_roll_first = true;
-
+    s_height_pid = (pid_state_t){.first = true};
+    s_pitch_pid  = (pid_state_t){.first = true};
+    s_roll_pid   = (pid_state_t){.first = true};
     s_manual_pitch_target = 0.0f;
 }
 
@@ -152,40 +147,35 @@ static void control_compute(int16_t height_cm,
     float ki_r = (float)s_cfg.roll_ki / 1000.0f;
     float kd_r = (float)s_cfg.roll_kd / 1000.0f;
 
+    const float pitch_target_abs_max = (float)s_cfg.pitch_target_max_deg;
     float max_diff   = (float)s_cfg.elevon_max_diff_deg;
     float max_center = servo_drive_get_effective_range_deg() - max_diff;
     if (max_center < 0.0f) max_center = 0.0f;
 
-    /* Joystick always accumulates a pitch trim offset regardless of height mode. */
+    /* Joystick rate-integrates into a pitch trim offset; clamped to the same
+     * authority bound as the height PID output. */
     float joy_norm = ((float)joy_y_pct / 50.0f) - 1.0f;
     if (joy_norm >  1.0f) joy_norm =  1.0f;
     if (joy_norm < -1.0f) joy_norm = -1.0f;
     if (fabsf(joy_norm) < 0.05f) joy_norm = 0.0f;
     s_manual_pitch_target += joy_norm * 20.0f * dt;
-    if (s_manual_pitch_target >  max_center) s_manual_pitch_target =  max_center;
-    if (s_manual_pitch_target < -max_center) s_manual_pitch_target = -max_center;
+    if (s_manual_pitch_target >  pitch_target_abs_max) s_manual_pitch_target =  pitch_target_abs_max;
+    if (s_manual_pitch_target < -pitch_target_abs_max) s_manual_pitch_target = -pitch_target_abs_max;
 
     float pitch_target;
     if (s_cfg.height_enabled) {
-        float height_error = (float)(s_cfg.height_target_cm - height_cm);
-        pitch_target = apply_pid(height_error, kp_h, ki_h, kd_h, dt,
-                                 &s_height_integral, &s_height_prev_error, &s_height_first);
+        pitch_target = apply_pid((float)s_cfg.height_target_cm, (float)height_cm,
+                                 kp_h, ki_h, kd_h, dt, pitch_target_abs_max, &s_height_pid);
         pitch_target += s_manual_pitch_target;
     } else {
         pitch_target = s_manual_pitch_target;
-        s_height_integral   = 0.0f;
-        s_height_prev_error = 0.0f;
-        s_height_first      = true;
+        s_height_pid.first = true;
     }
+    if (pitch_target >  pitch_target_abs_max) pitch_target =  pitch_target_abs_max;
+    if (pitch_target < -pitch_target_abs_max) pitch_target = -pitch_target_abs_max;
 
-    if (pitch_target >  15.0f) pitch_target =  15.0f;
-    if (pitch_target < -15.0f) pitch_target = -15.0f;
-
-    float pitch_error   = pitch_target - pitch_deg;
-    float elevon_center = apply_pid(pitch_error, kp_p, ki_p, kd_p, dt,
-                                    &s_pitch_integral, &s_pitch_prev_error, &s_pitch_first);
-    if (elevon_center >  max_center) elevon_center =  max_center;
-    if (elevon_center < -max_center) elevon_center = -max_center;
+    float elevon_center = apply_pid(pitch_target, pitch_deg,
+                                    kp_p, ki_p, kd_p, dt, max_center, &s_pitch_pid);
 
     float rudder_exp = (float)s_cfg.rudder_exponent_x100 / 100.0f;
     float max_roll = (float)s_cfg.rudder_max_roll_deg;
@@ -196,12 +186,8 @@ static void control_compute(int16_t height_cm,
     float roll_target_deg = powf(abs_norm, rudder_exp) * max_roll;
     if (rudder_norm < 0.0f) roll_target_deg = -roll_target_deg;
 
-    float roll_error = roll_target_deg - roll_deg;
-    float elevon_diff = apply_pid(roll_error, kp_r, ki_r, kd_r, dt,
-                                  &s_roll_integral, &s_roll_prev_error, &s_roll_first);
-
-    if (elevon_diff >  max_diff) elevon_diff =  max_diff;
-    if (elevon_diff < -max_diff) elevon_diff = -max_diff;
+    float elevon_diff = apply_pid(roll_target_deg, roll_deg,
+                                  kp_r, ki_r, kd_r, dt, max_diff, &s_roll_pid);
 
     out->armed = true;
     out->elevon_left_deg  = elevon_center + elevon_diff;

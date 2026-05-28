@@ -23,23 +23,28 @@ typedef struct {
      * pitch target directly. */
     bool    height_enabled;
     int16_t elevon_max_diff_deg;  /* max elevon differential (roll authority) */
+    int16_t pitch_target_max_deg; /* max pitch setpoint magnitude (height-loop + joystick authority) */
     int16_t height_target_cm;     /* desired hover height in cm, 0..50 */
 } control_config_t;
 
-#define CONTROL_DEFAULT_HEIGHT_KP  100
+/* Defaults derived from the BeagleBone pilou config (current_feb26.cfg),
+ * with pilou's radian/abstract units mapped into our degree/elevon units.
+ * Height gains are zero to match the config (height loop disabled in pilou). */
+#define CONTROL_DEFAULT_HEIGHT_KP  0
 #define CONTROL_DEFAULT_HEIGHT_KI  0
-#define CONTROL_DEFAULT_HEIGHT_KD  20
-#define CONTROL_DEFAULT_PITCH_KP   1000
+#define CONTROL_DEFAULT_HEIGHT_KD  0
+#define CONTROL_DEFAULT_PITCH_KP   26
 #define CONTROL_DEFAULT_PITCH_KI   0
-#define CONTROL_DEFAULT_PITCH_KD   50
-#define CONTROL_DEFAULT_ROLL_KP    300
+#define CONTROL_DEFAULT_PITCH_KD   26
+#define CONTROL_DEFAULT_ROLL_KP    44
 #define CONTROL_DEFAULT_ROLL_KI    0
-#define CONTROL_DEFAULT_ROLL_KD    10
-#define CONTROL_DEFAULT_RUDDER_EXPONENT_X100  200
+#define CONTROL_DEFAULT_ROLL_KD    35
+#define CONTROL_DEFAULT_RUDDER_EXPONENT_X100  300
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
 #define CONTROL_DEFAULT_HEIGHT_ENABLED        true
 #define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   5
-#define CONTROL_DEFAULT_HEIGHT_TARGET_CM      0
+#define CONTROL_DEFAULT_PITCH_TARGET_MAX_DEG  10
+#define CONTROL_DEFAULT_HEIGHT_TARGET_CM      35
 
 /* Snapshot of control state for display/telemetry consumers. */
 typedef struct {
