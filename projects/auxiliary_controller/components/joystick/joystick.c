@@ -88,7 +88,7 @@ esp_err_t joystick_init(void) {
     err = adc_oneshot_config_channel(s_adc, s_y_ch, &chc);
     ESP_RETURN_ON_ERROR(err, TAG, "ADC Y channel config failed");
 
-    if (xTaskCreate(joystick_tx_task, "joystick_tx", 2048, NULL, 6, NULL) != pdPASS) {
+    if (xTaskCreate(joystick_tx_task, "joystick_tx", 4096, NULL, 6, NULL) != pdPASS) {
         ESP_LOGE(TAG, "joystick_tx task create failed");
         return ESP_ERR_NO_MEM;
     }

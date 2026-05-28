@@ -38,7 +38,7 @@ void app_main(void) {
     ESP_LOGW(TAG, "CAN init failed — CAN TX disabled");
   }
 
-  gps_init();
+  if (gps_init() != ESP_OK) ESP_LOGW(TAG, "GPS not initialised");
   if (joystick_init() != ESP_OK) {
     ESP_LOGW(TAG, "Joystick ADC not initialised");
   }

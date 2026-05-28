@@ -97,7 +97,10 @@ void status_ui_stop(void) {
 
 void status_ui_update(const char *tag, const char *fmt, ...) {
     assert(tag != NULL);
-    if (!s_status_ui.initialized) return; // just do nothing if status_ui aint ready
+    if (!s_status_ui.initialized) {
+        ESP_LOGW(TAG, "not initialized yet, skipping %s", tag);
+        return ;
+    } // just do nothing if status_ui aint ready
 
     char buf[TEXT_CAP];
     {
@@ -113,6 +116,12 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
 
     const int64_t now = esp_timer_get_time();
 
+    /* Acquire the lock BEFORE touching the entries array — otherwise two tasks
+     * can both read the same stale entry_count, both compute idx for the same
+     * slot, and the second one ends up writing into the first's row instead of
+     * creating a new entry. */
+    if (s_status_ui.lock_cb) s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
+
     size_t idx = s_status_ui.entry_count;
     for (size_t i = 0; i < s_status_ui.entry_count; i++) {
         if (strncmp(s_status_ui.entries[i].tag, tag, TAG_LEN) == 0) {
@@ -123,18 +132,18 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
 
     if (idx >= MAX_ENTRIES) {
         ESP_LOGW(TAG, "Too many status tags, ignoring \"%s\"", tag);
-        return;
+        if (s_status_ui.unlock_cb) s_status_ui.unlock_cb();
+        return ;
     }
 
     if (idx < s_status_ui.entry_count) {
         const int64_t min_dt = (int64_t)s_status_ui.min_interval_ms * 1000LL;
         if (s_status_ui.entries[idx].last_update_us > 0 &&
             (now - s_status_ui.entries[idx].last_update_us) < min_dt) {
-            return;
+            if (s_status_ui.unlock_cb) s_status_ui.unlock_cb();
+            return ;
         }
     }
-
-    if (s_status_ui.lock_cb) s_status_ui.lock_cb(0);
 
     if (idx >= s_status_ui.entry_count) {
         snprintf(s_status_ui.entries[idx].tag, TAG_LEN, "%s", tag);
@@ -171,10 +180,15 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
         s_status_ui.entries[idx].val_label = val_lbl;
         s_status_ui.entry_count++;
 
+        /* Force flex layout so the val_label has a real width before set_text;
+         * otherwise SCROLL_CIRCULAR can latch onto width=0 and render nothing. */
+        lv_obj_update_layout(s_status_ui.container);
     }
 
     lv_label_set_text(s_status_ui.entries[idx].val_label, buf);
     s_status_ui.entries[idx].last_update_us = now;
 
     if (s_status_ui.unlock_cb) s_status_ui.unlock_cb();
+
+    ESP_LOGD(TAG, "displayed tag: %s", tag);
 }
