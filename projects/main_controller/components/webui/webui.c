@@ -1,6 +1,7 @@
 #include "webui.h"
 
 #include "control.h"
+#include "imu.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -473,6 +474,68 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     return json_ok_resp(req);
 }
 
+static esp_err_t api_get_imu(httpd_req_t *req) {
+    imu_config_t cfg;
+    imu_get_cfg(&cfg);
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"pitch_offset_deg_x10\":%d,\"roll_offset_deg_x10\":%d}",
+        (int)cfg.pitch_offset_deg_x10, (int)cfg.roll_offset_deg_x10);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
+static esp_err_t api_get_imu_defaults(httpd_req_t *req) {
+    imu_config_t cfg;
+    imu_get_defaults(&cfg);
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"pitch_offset_deg_x10\":%d,\"roll_offset_deg_x10\":%d}",
+        (int)cfg.pitch_offset_deg_x10, (int)cfg.roll_offset_deg_x10);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
+static esp_err_t api_put_imu(httpd_req_t *req) {
+    size_t buf_sz = req->content_len;
+    if (buf_sz > 256) return json_error_resp(req, "payload too large");
+
+    char *buf = malloc(buf_sz + 1);
+    if (!buf) return json_error_resp(req, "no mem");
+
+    int ret = httpd_req_recv(req, buf, buf_sz);
+    if (ret <= 0) {
+        free(buf);
+        return json_error_resp(req, "recv failed");
+    }
+    buf[buf_sz] = 0;
+
+    imu_config_t cfg;
+    imu_get_cfg(&cfg);
+    if (has_key(buf, "\"pitch_offset_deg_x10\"")) {
+        cfg.pitch_offset_deg_x10 = (int16_t)parse_number(buf, "\"pitch_offset_deg_x10\"");
+    }
+    if (has_key(buf, "\"roll_offset_deg_x10\"")) {
+        cfg.roll_offset_deg_x10 = (int16_t)parse_number(buf, "\"roll_offset_deg_x10\"");
+    }
+    free(buf);
+
+    imu_apply_cfg(&cfg);
+    return json_ok_resp(req);
+}
+
+static esp_err_t api_get_attitude(httpd_req_t *req) {
+    float pitch = 0, roll = 0, yaw = 0;
+    imu_get_attitude(&pitch, &roll, &yaw);
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"pitch_deg\":%.2f,\"roll_deg\":%.2f,\"yaw_deg\":%.2f,\"ready\":%s}",
+        (double)pitch, (double)roll, (double)yaw,
+        imu_is_ready() ? "true" : "false");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
 static esp_err_t api_arm(httpd_req_t *req) {
     if (servo_drive_any_cal_mode()) {
         return json_error_resp(req, "calibration active");
@@ -573,6 +636,10 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/config",   .method = HTTP_GET,  .handler = api_get_config},
     {.uri = "/api/config",   .method = HTTP_PUT,  .handler = api_put_config},
     {.uri = "/api/config/defaults", .method = HTTP_GET, .handler = api_get_config_defaults},
+    {.uri = "/api/imu",      .method = HTTP_GET,  .handler = api_get_imu},
+    {.uri = "/api/imu",      .method = HTTP_PUT,  .handler = api_put_imu},
+    {.uri = "/api/imu/defaults", .method = HTTP_GET, .handler = api_get_imu_defaults},
+    {.uri = "/api/attitude", .method = HTTP_GET,  .handler = api_get_attitude},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
     {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
 };

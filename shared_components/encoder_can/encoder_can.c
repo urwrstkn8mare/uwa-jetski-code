@@ -136,7 +136,7 @@ bool encoder_can_get_angle(float *angle_out) {
         float clamped = s_angle_deg;
         if      (clamped >  20.0f) clamped =  20.0f;
         else if (clamped < -20.0f) clamped = -20.0f;
-        *angle_out = clamped;
+        *angle_out = clamped + 3.52f;
     }
     return true;
 }

@@ -159,10 +159,11 @@ static void control_compute(int16_t height_cm,
     /* Joystick rate-integrates into a pitch trim offset; clamped to the same
      * authority bound as the height PID output. */
     float joy_y_norm = ((float)joy_y_pct / 50.0f) - 1.0f;
+    joy_y_norm = -joy_y_norm;
     if (joy_y_norm >  1.0f) joy_y_norm =  1.0f;
     if (joy_y_norm < -1.0f) joy_y_norm = -1.0f;
     if (fabsf(joy_y_norm) < 0.05f) joy_y_norm = 0.0f;
-    s_manual_pitch_target += joy_y_norm * 20.0f * dt;
+    s_manual_pitch_target += joy_y_norm * 40.0f * dt;
     if (s_manual_pitch_target >  pitch_target_abs_max) s_manual_pitch_target =  pitch_target_abs_max;
     if (s_manual_pitch_target < -pitch_target_abs_max) s_manual_pitch_target = -pitch_target_abs_max;
 
@@ -174,7 +175,7 @@ static void control_compute(int16_t height_cm,
         if (joy_x_norm >  1.0f) joy_x_norm =  1.0f;
         if (joy_x_norm < -1.0f) joy_x_norm = -1.0f;
         if (fabsf(joy_x_norm) < 0.05f) joy_x_norm = 0.0f;
-        s_manual_roll_target += joy_x_norm * 20.0f * dt;
+        s_manual_roll_target += joy_x_norm * 40.0f * dt;
     }
     if (s_manual_roll_target >  roll_target_abs_max) s_manual_roll_target =  roll_target_abs_max;
     if (s_manual_roll_target < -roll_target_abs_max) s_manual_roll_target = -roll_target_abs_max;
@@ -202,6 +203,7 @@ static void control_compute(int16_t height_cm,
     float abs_norm = fabsf(rudder_norm);
     float roll_target_deg = powf(abs_norm, rudder_exp) * max_roll;
     if (rudder_norm < 0.0f) roll_target_deg = -roll_target_deg;
+    roll_target_deg = -roll_target_deg;
     roll_target_deg += s_manual_roll_target;
     if (roll_target_deg >  max_roll) roll_target_deg =  max_roll;
     if (roll_target_deg < -max_roll) roll_target_deg = -max_roll;

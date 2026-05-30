@@ -49,11 +49,11 @@ static void joystick_tx_task(void *arg) {
 
         int x_dev = (int)x_pct - 50;
         int y_dev = (int)y_pct - 50;
-        if (abs(x_dev) >= abs(y_dev)) {
-            y_pct = 50;
-        } else {
-            x_pct = 50;
-        }
+        // if (abs(x_dev) >= abs(y_dev)) {
+        //     y_pct = 50;
+        // } else {
+        //     x_pct = 50;
+        // }
 
         can_joystick_t joy = { .x_pct = x_pct, .y_pct = y_pct };
         (void)can_tx(CAN_ID_JOYSTICK, (const uint8_t *)&joy, sizeof(joy));

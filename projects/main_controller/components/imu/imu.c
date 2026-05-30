@@ -5,6 +5,7 @@
 
 #include "can.h"
 #include "can_ids.h"
+#include "config.h"
 #include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -16,6 +17,14 @@
 #include "status_ui.h"
 
 static const char *TAG = "imu";
+static const char *IMU_NVS_KEY = "imu";
+
+static const imu_config_t s_imu_defaults = {
+    .pitch_offset_deg_x10 = IMU_DEFAULT_PITCH_OFFSET_DEG_X10,
+    .roll_offset_deg_x10  = IMU_DEFAULT_ROLL_OFFSET_DEG_X10,
+};
+
+static imu_config_t s_cfg;
 
 #define ICM_I2C_PORT ((i2c_port_num_t)CONFIG_IMU_I2C_PORT)
 #define ICM_I2C_SDA_GPIO ((gpio_num_t)CONFIG_IMU_I2C_SDA_GPIO)
@@ -124,7 +133,7 @@ static void imu_reader_task(void *arg) {
                 quaternion_to_rpy(sqrt(q0_sq), q1, q2, q3, &pitch, &roll, &yaw);
 
                 if (rpy_is_valid(pitch, roll, yaw)) {
-                    s_pitch_deg = pitch;
+                    s_pitch_deg = -pitch;
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;
                     status_ui_update("IMU", "P:%.2f R:%.2f Y:%.2f deg",
@@ -150,6 +159,10 @@ static void imu_reader_task(void *arg) {
 esp_err_t imu_init(void) {
     if (s_imu_initialized) {
         return ESP_OK;
+    }
+
+    if (config_get_blob(IMU_NVS_KEY, &s_cfg, sizeof(s_cfg)) != ESP_OK) {
+        s_cfg = s_imu_defaults;
     }
 
     ESP_RETURN_ON_ERROR(init_icm_i2c(), TAG, "failed to init i2c");
@@ -203,10 +216,30 @@ esp_err_t imu_get_pitch_roll_yaw(float *pitch, float *roll, float *yaw) {
     ESP_RETURN_ON_FALSE(pitch != NULL && roll != NULL, ESP_ERR_INVALID_ARG, TAG, "pitch/roll is null");
     ESP_RETURN_ON_FALSE(s_imu_initialized, ESP_ERR_INVALID_STATE, TAG, "imu not initialized");
 
-    *pitch = s_pitch_deg;
-    *roll = s_roll_deg;
+    *pitch = s_pitch_deg + (float)s_cfg.pitch_offset_deg_x10 / 10.0f;
+    *roll = s_roll_deg + (float)s_cfg.roll_offset_deg_x10 / 10.0f;
     if (yaw != NULL) {
         *yaw = s_yaw_deg;
     }
     return ESP_OK;
+}
+
+void imu_get_attitude(float *pitch, float *roll, float *yaw) {
+    if (pitch) *pitch = s_pitch_deg + (float)s_cfg.pitch_offset_deg_x10 / 10.0f;
+    if (roll)  *roll  = s_roll_deg  + (float)s_cfg.roll_offset_deg_x10  / 10.0f;
+    if (yaw)   *yaw   = s_yaw_deg;
+}
+
+void imu_get_cfg(imu_config_t *cfg) {
+    if (cfg) *cfg = s_cfg;
+}
+
+void imu_get_defaults(imu_config_t *cfg) {
+    if (cfg) *cfg = s_imu_defaults;
+}
+
+void imu_apply_cfg(const imu_config_t *cfg) {
+    if (cfg == NULL) return;
+    s_cfg = *cfg;
+    (void)config_set_blob(IMU_NVS_KEY, &s_cfg, sizeof(s_cfg));
 }

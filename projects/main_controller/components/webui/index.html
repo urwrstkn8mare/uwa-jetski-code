@@ -78,6 +78,7 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div class="tabs">
 <button class="active" data-tab="control">Control</button>
 <button data-tab="config">Config</button>
+<button data-tab="offsets">Offsets</button>
 <button data-tab="servos">Servos</button>
 </div>
 
@@ -157,6 +158,32 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 </div>
 </div>
 
+<div id="panel-offsets" class="panel">
+<div class="hint" style="margin-bottom:12px">IMU trim offsets are added to the raw sensor reading before it enters the PID loops. Use the live readout below: place the jetski level, then dial each offset until the displayed angle reads 0°.</div>
+<div class="card">
+<h3>Live attitude (offset applied)</h3>
+<div class="telemetry-row">
+<div class="telemetry-item"><div class="label">Pitch</div><div class="val t-blue" id="liveAttPitch">--</div></div>
+<div class="telemetry-item"><div class="label">Roll</div><div class="val t-blue" id="liveAttRoll">--</div></div>
+</div>
+</div>
+<div class="card">
+<div class="cfg-section">
+<h4>IMU offsets</h4>
+<div class="cfg-grid">
+<div class="cfg-group"><label>Pitch offset °</label><input type="number" id="off_pitch_deg" step="0.1"></div>
+<div class="cfg-group"><label>Roll offset °</label><input type="number" id="off_roll_deg" step="0.1"></div>
+<div class="cfg-group"></div>
+</div>
+</div>
+<div class="btn-group">
+<button class="btn btn-save" id="btnSaveOffsets">Save Offsets</button>
+<button class="btn btn-reset" id="btnResetOffsets">Reset to Defaults</button>
+</div>
+<span id="offsetsSaveMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
+</div>
+</div>
+
 <div id="panel-servos" class="panel">
 <div class="hint" style="margin-bottom:12px">Servo configuration and calibration. Changes apply immediately to hardware.</div>
 <div id="servoList"></div>
@@ -216,6 +243,8 @@ document.querySelectorAll('.tabs button').forEach(btn => {
         document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'servos') loadServos();
         if (btn.dataset.tab === 'config') loadConfig();
+        if (btn.dataset.tab === 'offsets') { loadOffsets(); startAttitudePoll(); }
+        else { stopAttitudePoll(); }
     });
 });
 
@@ -284,6 +313,65 @@ function populateConfigForm(cfg) {
 function loadConfig() {
     fetch(API + '/api/config').then(r => r.json()).then(populateConfigForm).catch(() => {});
 }
+
+let attitudePoll = null;
+function startAttitudePoll() {
+    if (attitudePoll) return;
+    const tick = () => {
+        fetch(API + '/api/attitude').then(r => r.json()).then(d => {
+            $('liveAttPitch').textContent = Number(d.pitch_deg).toFixed(2) + '°';
+            $('liveAttRoll').textContent  = Number(d.roll_deg).toFixed(2) + '°';
+        }).catch(() => {});
+    };
+    tick();
+    attitudePoll = setInterval(tick, 250);
+}
+function stopAttitudePoll() {
+    if (attitudePoll) { clearInterval(attitudePoll); attitudePoll = null; }
+}
+
+function populateOffsetsForm(cfg) {
+    if (cfg.pitch_offset_deg_x10 !== undefined) {
+        $('off_pitch_deg').value = (cfg.pitch_offset_deg_x10 / 10).toFixed(1);
+    }
+    if (cfg.roll_offset_deg_x10 !== undefined) {
+        $('off_roll_deg').value = (cfg.roll_offset_deg_x10 / 10).toFixed(1);
+    }
+}
+
+function loadOffsets() {
+    fetch(API + '/api/imu').then(r => r.json()).then(populateOffsetsForm).catch(() => {});
+}
+
+$('btnSaveOffsets').addEventListener('click', () => {
+    const data = {
+        pitch_offset_deg_x10: Math.round((parseFloat($('off_pitch_deg').value) || 0) * 10),
+        roll_offset_deg_x10:  Math.round((parseFloat($('off_roll_deg').value)  || 0) * 10),
+    };
+    fetch(API + '/api/imu', {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => {
+        $('offsetsSaveMsg').textContent = r.ok ? 'Saved!' : 'Error';
+        setTimeout(() => $('offsetsSaveMsg').textContent = '', 2000);
+    }).catch(() => {
+        $('offsetsSaveMsg').textContent = 'Error';
+        setTimeout(() => $('offsetsSaveMsg').textContent = '', 2000);
+    });
+});
+
+$('btnResetOffsets').addEventListener('click', () => {
+    if (!confirm('Reset IMU offsets to defaults?\n(Form will be populated; click Save Offsets to persist.)')) return;
+    fetch(API + '/api/imu/defaults').then(r => r.json()).then(cfg => {
+        populateOffsetsForm(cfg);
+        $('offsetsSaveMsg').textContent = 'Defaults loaded';
+        setTimeout(() => $('offsetsSaveMsg').textContent = '', 2000);
+    }).catch(() => {
+        $('offsetsSaveMsg').textContent = 'Error';
+        setTimeout(() => $('offsetsSaveMsg').textContent = '', 2000);
+    });
+});
 
 $('btnResetConfig').addEventListener('click', () => {
     if (!confirm('Reset all control config fields to defaults?\n(Form will be populated; click Save Config to persist.)')) return;
