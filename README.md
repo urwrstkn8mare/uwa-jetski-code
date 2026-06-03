@@ -4,8 +4,9 @@ This is the code for both the new and old hydrofoil jetski at UWA.
 
 ## TODO
 
-- [ ] Implement CAN bulk data logging via the display projects (`tab5` and `ws_lcd`) to an SD card (CSV or better alternative).
-- [ ] Remove `dashboard_demo` and replace it with a unified dummy-data injection mechanism at the project level: `dashboard_ui` should only consume CAN data, and projects that need test/demo data push it via the same CAN path. This ensures future data-logging work can share the same dummy-data path without a separate demo codepath in the UI component.
+- [ ] add rudder offset param in webui
+- [ ] joystick shouldn't be an accumulator - it should just directly affect the roll/pitch targets. also just remove the x axis of the joystick entirely and all related functionality - its unreliable and a waste of code.
+- [ ] make it so main controller stores data over time such as (IMU,speed,position,rudder,setpoints,height,servo positions, center, diff, joystick-induced-offset) and make that data showable in the webui as graphs. also display a satellite map based track map where if i highlight a point on the map it shows selects the corresponding point on the graph. i should be able to hide/show different parts of it. it should store this data persistently.
 
 ## Directories
 
