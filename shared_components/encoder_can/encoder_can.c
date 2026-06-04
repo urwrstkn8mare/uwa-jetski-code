@@ -14,6 +14,7 @@ static const char *TAG = "encoder_can";
 #define ENCODER_CMD_VALUE    0x01u
 #define ENCODER_CMD_SET_MODE 0x04u
 #define ENCODER_CMD_SET_TIME 0x05u
+#define ENCODER_CMD_SET_ZERO 0x06u
 #define ENCODER_MODE_AUTO    0xAAu
 
 /* Frame byte offsets in the 8-byte CAN data field */
@@ -136,7 +137,23 @@ bool encoder_can_get_angle(float *angle_out) {
         float clamped = s_angle_deg;
         if      (clamped >  20.0f) clamped =  20.0f;
         else if (clamped < -20.0f) clamped = -20.0f;
-        *angle_out = clamped + 3.52f;
+        *angle_out = clamped;
     }
     return true;
+}
+
+esp_err_t encoder_can_zero(void) {
+    /* Command 0x06: set the encoder's current position to zero (persistent).
+     * Frame: [LEN=4][DevID][0x06][0x00] — fire-and-forget, like the setup TX. */
+    uint8_t set_zero[4] = {
+        0x04,
+        (uint8_t)CONFIG_ENCODER_DEVICE_ID,
+        ENCODER_CMD_SET_ZERO,
+        0x00,
+    };
+    esp_err_t err = can_tx((uint32_t)CONFIG_ENCODER_DEVICE_ID, set_zero, sizeof(set_zero));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "zero TX failed: %s", esp_err_to_name(err));
+    }
+    return err;
 }

@@ -1,6 +1,7 @@
 #include "webui.h"
 
 #include "control.h"
+#include "encoder_can.h"
 #include "imu.h"
 #include "esp_check.h"
 #include "esp_err.h"
@@ -362,7 +363,6 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         "\"rudder_exponent_x100\":%d,"
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
-        "\"joystick_roll_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
         "\"pitch_target_max_deg\":%d,"
         "\"height_target_cm\":%d,"
@@ -375,7 +375,6 @@ static esp_err_t api_get_config(httpd_req_t *req) {
         (int)ctrl.rudder_exponent_x100,
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
-        ctrl.joystick_roll_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
         (int)ctrl.pitch_target_max_deg,
         (int)ctrl.height_target_cm,
@@ -401,7 +400,6 @@ static esp_err_t api_get_config_defaults(httpd_req_t *req) {
         "\"rudder_exponent_x100\":%d,"
         "\"rudder_max_roll_deg\":%d,"
         "\"height_enabled\":%s,"
-        "\"joystick_roll_enabled\":%s,"
         "\"elevon_max_diff_deg\":%d,"
         "\"pitch_target_max_deg\":%d,"
         "\"height_target_cm\":%d"
@@ -412,7 +410,6 @@ static esp_err_t api_get_config_defaults(httpd_req_t *req) {
         (int)ctrl.rudder_exponent_x100,
         (int)ctrl.rudder_max_roll_deg,
         ctrl.height_enabled ? "true" : "false",
-        ctrl.joystick_roll_enabled ? "true" : "false",
         (int)ctrl.elevon_max_diff_deg,
         (int)ctrl.pitch_target_max_deg,
         (int)ctrl.height_target_cm);
@@ -459,9 +456,6 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     PARSE_I16(height_target_cm,     "\"height_target_cm\"")
     if (has_key(buf, "\"height_enabled\"")) {
         ctrl.height_enabled = strstr(buf, "\"height_enabled\":true") != NULL;
-    }
-    if (has_key(buf, "\"joystick_roll_enabled\"")) {
-        ctrl.joystick_roll_enabled = strstr(buf, "\"joystick_roll_enabled\":true") != NULL;
     }
 
 #undef PARSE_INT
@@ -527,13 +521,24 @@ static esp_err_t api_put_imu(httpd_req_t *req) {
 static esp_err_t api_get_attitude(httpd_req_t *req) {
     float pitch = 0, roll = 0, yaw = 0;
     imu_get_attitude(&pitch, &roll, &yaw);
-    char buf[128];
+    float rudder = 0;
+    bool rudder_ready = encoder_can_get_angle(&rudder);
+    char buf[160];
     int n = snprintf(buf, sizeof(buf),
-        "{\"pitch_deg\":%.2f,\"roll_deg\":%.2f,\"yaw_deg\":%.2f,\"ready\":%s}",
+        "{\"pitch_deg\":%.2f,\"roll_deg\":%.2f,\"yaw_deg\":%.2f,\"ready\":%s,"
+        "\"rudder_deg\":%.2f,\"rudder_ready\":%s}",
         (double)pitch, (double)roll, (double)yaw,
-        imu_is_ready() ? "true" : "false");
+        imu_is_ready() ? "true" : "false",
+        (double)rudder, rudder_ready ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
+static esp_err_t api_post_rudder_zero(httpd_req_t *req) {
+    if (encoder_can_zero() != ESP_OK) {
+        return json_error_resp(req, "zero command failed");
+    }
+    return json_ok_resp(req);
 }
 
 static esp_err_t api_arm(httpd_req_t *req) {
@@ -640,13 +645,14 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/imu",      .method = HTTP_PUT,  .handler = api_put_imu},
     {.uri = "/api/imu/defaults", .method = HTTP_GET, .handler = api_get_imu_defaults},
     {.uri = "/api/attitude", .method = HTTP_GET,  .handler = api_get_attitude},
+    {.uri = "/api/rudder/zero", .method = HTTP_POST, .handler = api_post_rudder_zero},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
     {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
 };
 
 static esp_err_t http_server_init(void) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 16;
+    cfg.max_uri_handlers = 20;
     cfg.lru_purge_enable = true;
     cfg.server_port = CONFIG_WEBUI_HTTP_PORT;
 

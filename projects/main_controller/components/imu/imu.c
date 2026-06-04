@@ -133,6 +133,9 @@ static void imu_reader_task(void *arg) {
                 quaternion_to_rpy(sqrt(q0_sq), q1, q2, q3, &pitch, &roll, &yaw);
 
                 if (rpy_is_valid(pitch, roll, yaw)) {
+                    /* IMU is mounted such that the DMP's pitch axis is inverted
+                     * relative to the airframe — negate to airframe convention
+                     * (nose-up positive). */
                     s_pitch_deg = -pitch;
                     s_roll_deg = roll;
                     s_yaw_deg = yaw;

@@ -42,3 +42,7 @@ esp_err_t encoder_can_init(bool configure);
  *         (angle_out is left untouched when false).
  */
 bool encoder_can_get_angle(float *angle_out);
+
+/* Command the encoder to set its current physical position as zero (0x06,
+ * persistent across power cycles). Fire-and-forget; returns the can_tx result. */
+esp_err_t encoder_can_zero(void);

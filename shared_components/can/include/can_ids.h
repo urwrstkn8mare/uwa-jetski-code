@@ -57,12 +57,11 @@ typedef struct __attribute__((packed)) {
 } can_ctrl_status_t;
 _Static_assert(sizeof(can_ctrl_status_t) == 6, "CAN ctrl status frame must be 6 bytes");
 
-/* Joystick axes from aux controller (0..100, 50 = centre) */
+/* Joystick Y axis from aux controller (0..100, 50 = centre) */
 typedef struct __attribute__((packed)) {
-    uint16_t x_pct;  /* left/right: 0=full left, 50=centre, 100=full right */
-    uint16_t y_pct;  /* up/down:    0=full down, 50=centre, 100=full up    */
+    uint16_t y_pct;  /* up/down: 0=full down, 50=centre, 100=full up */
 } can_joystick_t;
-_Static_assert(sizeof(can_joystick_t) == 4, "CAN joystick frame must be 4 bytes");
+_Static_assert(sizeof(can_joystick_t) == 2, "CAN joystick frame must be 2 bytes");
 
 /* Rudder angle re-broadcast by main controller from encoder */
 typedef struct __attribute__((packed)) {

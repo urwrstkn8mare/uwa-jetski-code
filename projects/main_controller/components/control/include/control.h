@@ -22,9 +22,6 @@ typedef struct {
     /* When false, height PID is bypassed and the joystick y axis sets the
      * pitch target directly. */
     bool    height_enabled;
-    /* When false, joystick x axis stops accumulating into the manual roll
-     * offset (the existing offset is retained, not zeroed). */
-    bool    joystick_roll_enabled;
     int16_t elevon_max_diff_deg;  /* max elevon differential (roll authority) */
     int16_t pitch_target_max_deg; /* max pitch setpoint magnitude (height-loop + joystick authority) */
     int16_t height_target_cm;     /* desired hover height in cm, 0..50 */
@@ -46,7 +43,6 @@ typedef struct {
 #define CONTROL_DEFAULT_RUDDER_EXPONENT_X100  300
 #define CONTROL_DEFAULT_RUDDER_MAX_ROLL_DEG   20
 #define CONTROL_DEFAULT_HEIGHT_ENABLED        true
-#define CONTROL_DEFAULT_JOYSTICK_ROLL_ENABLED true
 #define CONTROL_DEFAULT_ELEVON_MAX_DIFF_DEG   20
 #define CONTROL_DEFAULT_PITCH_TARGET_MAX_DEG  10
 #define CONTROL_DEFAULT_HEIGHT_TARGET_CM      35
