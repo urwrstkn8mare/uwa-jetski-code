@@ -45,6 +45,7 @@ typedef struct {
     bool  armed;
     float pitch_target_deg;
     float roll_target_deg;
+    float joy_pitch_trim_deg;
 } control_output_t;
 
 static control_config_t s_cfg;
@@ -191,6 +192,7 @@ static void control_compute(int16_t height_cm,
     out->elevon_right_deg = elevon_center - elevon_diff;
     out->pitch_target_deg = pitch_target;
     out->roll_target_deg  = roll_target_deg;
+    out->joy_pitch_trim_deg = joy_pitch_trim;
 }
 
 /* ── Hot path: sense → PID → command servos. Highest priority, 50 Hz. ── */
@@ -387,7 +389,10 @@ void control_disarm(void) {
 
 void control_get_status(control_status_t *out) {
     if (out == NULL) return;
-    out->armed             = s_armed;
-    out->elevon_left_deg   = s_last_out.elevon_left_deg;
-    out->elevon_right_deg  = s_last_out.elevon_right_deg;
+    out->armed              = s_armed;
+    out->elevon_left_deg    = s_last_out.elevon_left_deg;
+    out->elevon_right_deg   = s_last_out.elevon_right_deg;
+    out->pitch_target_deg   = s_last_out.pitch_target_deg;
+    out->roll_target_deg    = s_last_out.roll_target_deg;
+    out->joy_pitch_trim_deg = s_last_out.joy_pitch_trim_deg;
 }

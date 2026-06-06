@@ -52,6 +52,9 @@ typedef struct {
     bool    armed;
     float   elevon_left_deg;
     float   elevon_right_deg;
+    float   pitch_target_deg;
+    float   roll_target_deg;
+    float   joy_pitch_trim_deg;  /* joystick-induced pitch offset */
 } control_status_t;
 
 /* Initialise the control loop and start its tasks. Loads persisted config

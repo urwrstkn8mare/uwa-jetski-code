@@ -1,6 +1,7 @@
 #include "webui.h"
 
 #include "control.h"
+#include "datalog.h"
 #include "encoder_can.h"
 #include "imu.h"
 #include "esp_check.h"
@@ -17,6 +18,7 @@
 #include "sdkconfig.h"
 #include "servo_drive.h"
 
+#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +38,10 @@ static TimerHandle_t s_heartbeat_timer;
 
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t leaflet_js_start[] asm("_binary_leaflet_js_gz_start");
+extern const uint8_t leaflet_js_end[]   asm("_binary_leaflet_js_gz_end");
+extern const uint8_t leaflet_css_start[] asm("_binary_leaflet_css_gz_start");
+extern const uint8_t leaflet_css_end[]   asm("_binary_leaflet_css_gz_end");
 
 static const int64_t SERVO_THROTTLE_US = 100000LL;
 static const int64_t STATE_THROTTLE_US  = 200000LL;
@@ -541,6 +547,115 @@ static esp_err_t api_post_rudder_zero(httpd_req_t *req) {
     return json_ok_resp(req);
 }
 
+/* ── Data logging ── */
+
+static bool query_u32(httpd_req_t *req, const char *key, uint32_t *out) {
+    char query[64], val[16];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) return false;
+    if (httpd_query_key_value(query, key, val, sizeof(val)) != ESP_OK) return false;
+    *out = (uint32_t)strtoul(val, NULL, 10);
+    return true;
+}
+
+static esp_err_t api_get_sessions(httpd_req_t *req) {
+    datalog_session_info_t s[32];
+    int n = datalog_list_sessions(s, 32);
+    size_t total = 0, used = 0;
+    datalog_storage_info(&total, &used);
+
+    char buf[1024];
+    int off = snprintf(buf, sizeof(buf),
+        "{\"current\":%" PRIu32 ",\"total\":%u,\"used\":%u,\"sessions\":[",
+        datalog_current_session(), (unsigned)total, (unsigned)used);
+    for (int i = 0; i < n && off < (int)sizeof(buf) - 96; i++) {
+        off += snprintf(buf + off, sizeof(buf) - off,
+            "%s{\"id\":%" PRIu32 ",\"records\":%" PRIu32 ",\"duration_ms\":%" PRIu32
+            ",\"at_risk\":%s}",
+            i ? "," : "", s[i].id, s[i].record_count, s[i].duration_ms,
+            s[i].at_risk ? "true" : "false");
+    }
+    off += snprintf(buf + off, sizeof(buf) - off, "]}");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)off);
+}
+
+static esp_err_t api_post_session_new(httpd_req_t *req) {
+    return (datalog_new_session() == ESP_OK) ? json_ok_resp(req)
+                                             : json_error_resp(req, "new session failed");
+}
+
+static esp_err_t api_post_session_delete(httpd_req_t *req) {
+    uint32_t id;
+    if (!query_u32(req, "id", &id)) return json_error_resp(req, "missing id");
+    esp_err_t err = datalog_delete_session(id);
+    if (err == ESP_ERR_INVALID_STATE) return json_error_resp(req, "session active");
+    return (err == ESP_OK) ? json_ok_resp(req) : json_error_resp(req, "delete failed");
+}
+
+static esp_err_t api_post_session_clear(httpd_req_t *req) {
+    datalog_delete_all();
+    return json_ok_resp(req);
+}
+
+/* Stream one session as a [header][records] container block over chunks. */
+static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, size_t buf_sz) {
+    uint32_t count = datalog_session_record_count(id);
+    datalog_header_t hdr = {
+        .magic = DATALOG_MAGIC,
+        .version = DATALOG_VERSION,
+        .record_size = sizeof(datalog_record_t),
+        .session_id = id,
+        .record_count = count,
+        .reserved = 0,
+    };
+    if (httpd_resp_send_chunk(req, (const char *)&hdr, sizeof(hdr)) != ESP_OK) return ESP_FAIL;
+
+    size_t total = (size_t)count * sizeof(datalog_record_t);
+    size_t sent = 0;
+    while (sent < total) {
+        size_t want = total - sent;
+        if (want > buf_sz) want = buf_sz;
+        int got = datalog_read_session(id, sent, buf, want);
+        if (got <= 0) break;
+        if (httpd_resp_send_chunk(req, buf, (size_t)got) != ESP_OK) return ESP_FAIL;
+        sent += (size_t)got;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t api_get_session(httpd_req_t *req) {
+    uint32_t id;
+    if (!query_u32(req, "id", &id)) return json_error_resp(req, "missing id");
+
+    char *buf = malloc(1024);
+    if (!buf) return json_error_resp(req, "no mem");
+
+    httpd_resp_set_type(req, "application/octet-stream");
+    esp_err_t err = send_session_block(req, id, buf, 1024);
+    free(buf);
+    if (err != ESP_OK) return err;
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+static esp_err_t api_get_download(httpd_req_t *req) {
+    datalog_session_info_t s[32];
+    int n = datalog_list_sessions(s, 32);
+
+    char *buf = malloc(1024);
+    if (!buf) return json_error_resp(req, "no mem");
+
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"jetski_log.bin\"");
+    for (int i = 0; i < n; i++) {
+        if (send_session_block(req, s[i].id, buf, 1024) != ESP_OK) {
+            free(buf);
+            return ESP_FAIL;
+        }
+    }
+    free(buf);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 static esp_err_t api_arm(httpd_req_t *req) {
     if (servo_drive_any_cal_mode()) {
         return json_error_resp(req, "calibration active");
@@ -558,6 +673,22 @@ static esp_err_t index_handler(httpd_req_t *req) {
     size_t len = (size_t)(index_html_end - index_html_start);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, (const char *)index_html_start, len);
+}
+
+static esp_err_t leaflet_js_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
+    return httpd_resp_send(req, (const char *)leaflet_js_start,
+                           (size_t)(leaflet_js_end - leaflet_js_start));
+}
+
+static esp_err_t leaflet_css_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
+    return httpd_resp_send(req, (const char *)leaflet_css_start,
+                           (size_t)(leaflet_css_end - leaflet_css_start));
 }
 
 static esp_err_t sse_handler(httpd_req_t *req) {
@@ -632,6 +763,8 @@ static esp_err_t wifi_ap_init(void) {
 
 static const httpd_uri_t s_uris[] = {
     {.uri = "/",             .method = HTTP_GET,  .handler = index_handler},
+    {.uri = "/leaflet.js",   .method = HTTP_GET,  .handler = leaflet_js_handler},
+    {.uri = "/leaflet.css",  .method = HTTP_GET,  .handler = leaflet_css_handler},
     {.uri = "/api/events",   .method = HTTP_GET,  .handler = sse_handler},
     {.uri = "/api/state",    .method = HTTP_GET,  .handler = api_get_state},
     {.uri = "/api/servos",   .method = HTTP_GET,  .handler = api_get_servos},
@@ -646,13 +779,19 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/imu/defaults", .method = HTTP_GET, .handler = api_get_imu_defaults},
     {.uri = "/api/attitude", .method = HTTP_GET,  .handler = api_get_attitude},
     {.uri = "/api/rudder/zero", .method = HTTP_POST, .handler = api_post_rudder_zero},
+    {.uri = "/api/sessions",        .method = HTTP_GET,  .handler = api_get_sessions},
+    {.uri = "/api/session/new",     .method = HTTP_POST, .handler = api_post_session_new},
+    {.uri = "/api/session/delete",  .method = HTTP_POST, .handler = api_post_session_delete},
+    {.uri = "/api/session/clear",   .method = HTTP_POST, .handler = api_post_session_clear},
+    {.uri = "/api/session",         .method = HTTP_GET,  .handler = api_get_session},
+    {.uri = "/api/download",        .method = HTTP_GET,  .handler = api_get_download},
     {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
     {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
 };
 
 static esp_err_t http_server_init(void) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 20;
+    cfg.max_uri_handlers = 28;
     cfg.lru_purge_enable = true;
     cfg.server_port = CONFIG_WEBUI_HTTP_PORT;
 

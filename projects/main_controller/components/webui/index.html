@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jetski Control</title>
+<link rel="stylesheet" href="/leaflet.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
@@ -64,6 +65,25 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 .cal-group input{width:100%;padding:8px;border:1px solid #333;border-radius:4px;background:#1a1a2e;color:#e0e0e0;font-size:13px;font-family:monospace}
 .cal-group input:focus{outline:none;border-color:#4ecca3}
 .save-row{display:flex;gap:8px;margin-top:12px}
+.storage-bar{height:8px;background:#0f3460;border-radius:4px;overflow:hidden;margin:8px 0}
+.storage-bar>div{height:100%;background:#4ecca3;transition:width .3s}
+.sess-list{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:220px;overflow-y:auto}
+.sess-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:#0f3460;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.sess-row.active{border-color:#4ecca3}
+.sess-row .sess-name{font-weight:600;font-size:14px}
+.sess-row .sess-meta{font-size:12px;color:#888;margin-left:auto}
+.sess-row .warn{color:#ffd93d;font-size:14px}
+.sess-row .del{color:#e94560;background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.legend .chip{display:flex;align-items:center;gap:5px;font-size:12px;padding:4px 8px;border-radius:14px;background:#0f3460;cursor:pointer;user-select:none;opacity:.45;border:1px solid #243}
+.legend .chip.on{opacity:1}
+.legend .chip .sw{width:10px;height:10px;border-radius:50%}
+#chartWrap{position:relative;width:100%}
+#chart{width:100%;height:260px;display:block;background:#0f1830;border-radius:6px}
+#readout{font-size:12px;color:#aaa;font-family:monospace;margin-top:6px;min-height:16px}
+#map{width:100%;height:300px;border-radius:6px;background:#0f1830}
+.leaflet-container{background:#0f1830}
+.data-hint{font-size:12px;color:#888;margin:4px 0 8px}
 </style>
 </head>
 <body>
@@ -80,6 +100,7 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <button data-tab="config">Config</button>
 <button data-tab="offsets">Offsets</button>
 <button data-tab="servos">Servos</button>
+<button data-tab="data">Data</button>
 </div>
 
 <div id="panel-control" class="panel active">
@@ -196,6 +217,35 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 <div id="servoList"></div>
 </div>
 
+<div id="panel-data" class="panel">
+<div class="card">
+<h3>Sessions</h3>
+<div class="storage-bar"><div id="storageFill" style="width:0%"></div></div>
+<div id="storageText" class="data-hint">—</div>
+<div class="btn-group">
+<button class="btn btn-save" id="btnNewSession">New Session</button>
+<button class="btn btn-save" id="btnDownload">Download All</button>
+<button class="btn btn-save" id="btnOpenFile">Open File</button>
+<button class="btn btn-reset" id="btnClearSessions">Clear All</button>
+<input type="file" id="fileInput" accept=".bin" style="display:none">
+</div>
+<div class="data-hint">⚠ marks the session that will be auto-deleted next when space runs low.</div>
+<div id="sessList" class="sess-list"></div>
+</div>
+<div class="card">
+<h3 id="chartTitle">Graphs</h3>
+<div class="legend" id="legend"></div>
+<div id="chartWrap"><canvas id="chart"></canvas></div>
+<div id="readout"></div>
+</div>
+<div class="card">
+<h3>Track</h3>
+<div class="data-hint">Satellite tiles load when the device has internet (e.g. cellular) and are cached on this device for offline use. Tap the track to select a point.</div>
+<div id="map"></div>
+</div>
+</div>
+
+<script src="/leaflet.js"></script>
 <script>
 const API = '';
 
@@ -250,6 +300,7 @@ document.querySelectorAll('.tabs button').forEach(btn => {
         document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
         if (btn.dataset.tab === 'servos') loadServos();
         if (btn.dataset.tab === 'config') loadConfig();
+        if (btn.dataset.tab === 'data') openDataTab();
         if (btn.dataset.tab === 'offsets') { loadOffsets(); startAttitudePoll(); }
         else { stopAttitudePoll(); }
     });
@@ -512,6 +563,307 @@ function sendRawPw(handle, pulse_us) {
         body: JSON.stringify({handle: handle, pulse_us: Math.round(Number(pulse_us))})
     }).catch(() => {});
 }
+
+/* ── Data tab: sessions, binary parsing, graphs, track map ── */
+const DATALOG_MAGIC = 0x444B534A; // "JSKD" LE
+const REC_SIZE = 40;
+
+// key, label, colour; either a fixed-point field (off+scale) or a derived fn
+const CH = [
+  {k:'pitch',    l:'Pitch °',      c:'#5390d9', off:4,  sc:0.1},
+  {k:'roll',     l:'Roll °',       c:'#4ecca3', off:6,  sc:0.1},
+  {k:'yaw',      l:'Yaw °',        c:'#9b5de5', off:8,  sc:0.1},
+  {k:'height',   l:'Height cm',    c:'#ffd93d', off:10, sc:1},
+  {k:'rudder',   l:'Rudder °',     c:'#f15bb5', off:12, sc:0.1},
+  {k:'pitch_t',  l:'Pitch tgt °',  c:'#3a6ea5', off:14, sc:0.1, dash:true},
+  {k:'roll_t',   l:'Roll tgt °',   c:'#2a9d8f', off:16, sc:0.1, dash:true},
+  {k:'height_t', l:'Height tgt cm',c:'#bfa00f', off:18, sc:1,   dash:true},
+  {k:'joy',      l:'Joy trim °',   c:'#e94560', off:20, sc:0.1},
+  {k:'elL',      l:'Elevon L °',   c:'#00bbf9', off:22, sc:0.1},
+  {k:'elR',      l:'Elevon R °',   c:'#80ed99', off:24, sc:0.1},
+  {k:'center',   l:'Center °',     c:'#fee440', der:(d,b)=>(d.getInt16(b+22,true)+d.getInt16(b+24,true))/2*0.1},
+  {k:'diff',     l:'Diff °',       c:'#ff9e00', der:(d,b)=>(d.getInt16(b+22,true)-d.getInt16(b+24,true))/2*0.1},
+  {k:'speed',    l:'Speed kn',     c:'#06d6a0', off:26, sc:0.01},
+  {k:'course',   l:'Course °',     c:'#8338ec', off:28, sc:0.1},
+];
+const DEFAULT_ON = ['pitch','roll','pitch_t'];
+
+let dataSession = null;          // {id, n, t, cols{}, lat, lon, gps}
+let visible = new Set(DEFAULT_ON);
+let selIndex = -1;
+let sessionsMeta = [], currentSessionId = 0, localFile = null;
+let map = null, trackLine = null, selMarker = null;
+
+function parseSessions(buf){
+  const dv = new DataView(buf), out = [];
+  let o = 0;
+  while (o + 20 <= buf.byteLength){
+    if (dv.getUint32(o, true) !== DATALOG_MAGIC) break;
+    const recSize = dv.getUint16(o+6, true) || REC_SIZE;
+    const id = dv.getUint32(o+8, true);
+    const n  = dv.getUint32(o+12, true);
+    o += 20;
+    if (o + n*recSize > buf.byteLength) break;
+    const s = {id, n, t:new Float64Array(n), cols:{},
+               lat:new Float32Array(n), lon:new Float32Array(n), gps:new Uint8Array(n)};
+    CH.forEach(ch => s.cols[ch.k] = new Float32Array(n));
+    for (let i=0;i<n;i++){
+      const b = o + i*recSize;
+      s.t[i] = dv.getUint32(b, true)/1000;
+      CH.forEach(ch => { s.cols[ch.k][i] = ch.der ? ch.der(dv,b) : dv.getInt16(b+ch.off,true)*ch.sc; });
+      s.lat[i] = dv.getFloat32(b+30, true);
+      s.lon[i] = dv.getFloat32(b+34, true);
+      s.gps[i] = dv.getUint8(b+38) & 0x02;
+    }
+    out.push(s);
+    o += n*recSize;
+  }
+  return out;
+}
+
+function fmtDur(ms){ const s=Math.round(ms/1000); return s<60 ? s+'s' : Math.floor(s/60)+'m'+(s%60)+'s'; }
+
+function openDataTab(){
+  loadSessions();
+  buildLegend();
+  ensureMap();
+  setTimeout(()=>{ if(map) map.invalidateSize(); }, 60);
+  drawChart();
+}
+
+function loadSessions(){
+  localFile = null;
+  fetch(API+'/api/sessions').then(r=>r.json()).then(d=>{
+    sessionsMeta = d.sessions || [];
+    currentSessionId = d.current;
+    const pct = d.total ? Math.round(d.used/d.total*100) : 0;
+    $('storageFill').style.width = pct+'%';
+    $('storageText').textContent = (d.used/1048576).toFixed(1)+' / '+(d.total/1048576).toFixed(1)+' MB used ('+pct+'%)';
+    renderSessionList();
+  }).catch(()=>{ $('storageText').textContent='Failed to load sessions'; });
+}
+
+function renderSessionList(){
+  const list = $('sessList'); list.innerHTML='';
+  if (localFile){
+    const hdr = document.createElement('div'); hdr.className='data-hint';
+    hdr.innerHTML = `Viewing file: <b>${localFile.name}</b> · <a href="#" id="closeFile" style="color:#5390d9">use device sessions</a>`;
+    list.appendChild(hdr);
+    localFile.sessions.forEach(s=>{
+      const row=document.createElement('div');
+      row.className='sess-row'+(dataSession===s?' active':'');
+      row.innerHTML=`<span class="sess-name">Session ${s.id}</span><span class="sess-meta">${s.n} pts</span>`;
+      row.addEventListener('click',()=>selectSession(s));
+      list.appendChild(row);
+    });
+    $('closeFile').addEventListener('click',e=>{ e.preventDefault(); loadSessions(); });
+    return;
+  }
+  if (!sessionsMeta.length){ list.innerHTML='<div class="data-hint">No sessions yet.</div>'; return; }
+  sessionsMeta.forEach(s=>{
+    const row=document.createElement('div');
+    row.className='sess-row'+(dataSession && !dataSession.local && dataSession.id===s.id ? ' active':'');
+    const live=s.id===currentSessionId ? ' · REC':'';
+    row.innerHTML=`<span class="sess-name">Session ${s.id}</span>`+
+      (s.at_risk?'<span class="warn" title="auto-deleted next when space runs low">⚠</span>':'')+
+      `<span class="sess-meta">${s.records} pts · ${fmtDur(s.duration_ms)}${live}</span>`;
+    row.addEventListener('click',()=>loadSessionData(s.id));
+    const del=document.createElement('button');
+    del.className='del'; del.textContent='✕'; del.title='Delete';
+    del.addEventListener('click',ev=>{ ev.stopPropagation(); deleteSession(s.id, s.id===currentSessionId); });
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+function deleteSession(id, isCurrent){
+  if (isCurrent){ alert('Cannot delete the active session — start a new one first.'); return; }
+  if (!confirm('Delete session '+id+'?')) return;
+  fetch(API+'/api/session/delete?id='+id, {method:'POST'}).then(()=>loadSessions()).catch(()=>{});
+}
+
+function loadSessionData(id){
+  fetch(API+'/api/session?id='+id).then(r=>r.arrayBuffer()).then(buf=>{
+    const ss = parseSessions(buf);
+    if (!ss.length){ $('chartTitle').textContent='Graphs — (empty)'; return; }
+    selectSession(ss[0]);
+  }).catch(()=>{ $('chartTitle').textContent='Graphs — load failed'; });
+}
+
+function selectSession(s){
+  dataSession = s;
+  selIndex = -1;
+  $('chartTitle').textContent = 'Graphs — Session '+s.id+' ('+s.n+' pts)';
+  renderSessionList();
+  buildLegend();
+  drawChart();
+  updateTrack();
+  $('readout').textContent = s.n ? '' : 'No samples in this session.';
+}
+
+function buildLegend(){
+  const el=$('legend'); el.innerHTML='';
+  CH.forEach(ch=>{
+    const chip=document.createElement('span');
+    chip.className='chip'+(visible.has(ch.k)?' on':'');
+    chip.innerHTML=`<span class="sw" style="background:${ch.c}"></span>${ch.l}`;
+    chip.addEventListener('click',()=>{
+      if (visible.has(ch.k)) visible.delete(ch.k); else visible.add(ch.k);
+      chip.classList.toggle('on'); drawChart(); updateReadout();
+    });
+    el.appendChild(chip);
+  });
+}
+
+function nearestByTime(tt){
+  const t=dataSession.t, n=dataSession.n;
+  let lo=0, hi=n-1;
+  while(lo<hi){ const m=(lo+hi)>>1; if(t[m]<tt) lo=m+1; else hi=m; }
+  if(lo>0 && Math.abs(t[lo-1]-tt)<Math.abs(t[lo]-tt)) lo--;
+  return lo;
+}
+
+function nearestByLatLng(la,lo){
+  let best=-1, bd=Infinity;
+  for(let i=0;i<dataSession.n;i++){
+    if(!dataSession.gps[i]) continue;
+    const dx=dataSession.lat[i]-la, dy=dataSession.lon[i]-lo, d=dx*dx+dy*dy;
+    if(d<bd){ bd=d; best=i; }
+  }
+  return best;
+}
+
+function drawChart(){
+  const cv=$('chart'), wrap=$('chartWrap');
+  const w=wrap.clientWidth||600, h=260, dpr=window.devicePixelRatio||1;
+  cv.width=w*dpr; cv.height=h*dpr; cv.style.height=h+'px';
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  if(!dataSession||!dataSession.n) return;
+  const padL=46,padR=8,padT=10,padB=18, plotW=w-padL-padR, plotH=h-padT-padB;
+  const t=dataSession.t, n=dataSession.n, tmax=t[n-1]||1;
+  const vis=CH.filter(ch=>visible.has(ch.k));
+  let mn=Infinity,mx=-Infinity;
+  vis.forEach(ch=>{ const a=dataSession.cols[ch.k]; for(let i=0;i<n;i++){ const v=a[i]; if(v<mn)mn=v; if(v>mx)mx=v; } });
+  if(mn===Infinity){ mn=-1; mx=1; }
+  if(mn===mx){ mn-=1; mx+=1; }
+  const p=(mx-mn)*0.08; mn-=p; mx+=p;
+  const X=i=>padL+(t[i]/tmax)*plotW, Y=v=>padT+(1-(v-mn)/(mx-mn))*plotH;
+  ctx.font='10px monospace'; ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){
+    const yy=padT+plotH*g/4, val=mx-(mx-mn)*g/4;
+    ctx.strokeStyle='#23314f'; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
+    ctx.fillStyle='#7a89a8'; ctx.fillText(val.toFixed(1).padStart(6), 2, yy+3);
+  }
+  if(mn<0&&mx>0){ ctx.strokeStyle='#44557a'; ctx.beginPath(); ctx.moveTo(padL,Y(0)); ctx.lineTo(w-padR,Y(0)); ctx.stroke(); }
+  ctx.lineWidth=1.5;
+  vis.forEach(ch=>{
+    const a=dataSession.cols[ch.k];
+    ctx.strokeStyle=ch.c; ctx.setLineDash(ch.dash?[4,3]:[]); ctx.beginPath();
+    for(let i=0;i<n;i++){ const x=X(i),y=Y(a[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  if(selIndex>=0&&selIndex<n){
+    const x=X(selIndex);
+    ctx.strokeStyle='#fff'; ctx.globalAlpha=.5; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+plotH); ctx.stroke(); ctx.globalAlpha=1;
+    vis.forEach(ch=>{ ctx.fillStyle=ch.c; ctx.beginPath(); ctx.arc(x,Y(dataSession.cols[ch.k][selIndex]),2.5,0,7); ctx.fill(); });
+  }
+}
+
+function updateReadout(){
+  if(selIndex<0||!dataSession){ $('readout').textContent=''; return; }
+  const parts=['t='+dataSession.t[selIndex].toFixed(1)+'s'];
+  CH.filter(ch=>visible.has(ch.k)).forEach(ch=>parts.push(ch.l+'='+dataSession.cols[ch.k][selIndex].toFixed(1)));
+  $('readout').textContent=parts.join('   ');
+}
+
+function pickIndex(i){ selIndex=i; drawChart(); updateReadout(); updateSelMarker(); }
+
+$('chart').addEventListener('mousemove', e=>{
+  if(!dataSession||!dataSession.n) return;
+  const r=e.currentTarget.getBoundingClientRect(), padL=46,padR=8, plotW=r.width-padL-padR;
+  let frac=(e.clientX-r.left-padL)/plotW; frac=Math.max(0,Math.min(1,frac));
+  pickIndex(nearestByTime(frac*(dataSession.t[dataSession.n-1]||0)));
+});
+
+function ensureMap(){
+  if(map || typeof L==='undefined') return;
+  map=L.map('map',{attributionControl:false}).setView([0,0],2);
+  cachedTileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+  map.on('click', e=>{ if(!dataSession) return; const i=nearestByLatLng(e.latlng.lat,e.latlng.lng); if(i>=0) pickIndex(i); });
+}
+
+function updateTrack(){
+  ensureMap(); if(!map) return;
+  if(trackLine){ trackLine.remove(); trackLine=null; }
+  if(selMarker){ selMarker.remove(); selMarker=null; }
+  const pts=[];
+  for(let i=0;i<dataSession.n;i++){ if(dataSession.gps[i]) pts.push([dataSession.lat[i],dataSession.lon[i]]); }
+  if(pts.length){
+    trackLine=L.polyline(pts,{color:'#4ecca3',weight:3}).addTo(map);
+    map.fitBounds(trackLine.getBounds(),{padding:[20,20]});
+  }
+  setTimeout(()=>map.invalidateSize(),50);
+}
+
+function updateSelMarker(){
+  if(!map) return;
+  if(selIndex<0||!dataSession||!dataSession.gps[selIndex]){ if(selMarker){selMarker.remove();selMarker=null;} return; }
+  const ll=[dataSession.lat[selIndex],dataSession.lon[selIndex]];
+  if(selMarker) selMarker.setLatLng(ll);
+  else selMarker=L.circleMarker(ll,{radius:6,color:'#fff',weight:2,fillColor:'#e94560',fillOpacity:1}).addTo(map);
+}
+
+/* Leaflet tile layer that caches tiles in IndexedDB, so areas loaded once
+ * (online / cellular) still render when offline on the AP. Uncached + offline
+ * tiles stay blank → the track draws on a plain background. */
+let tileDb=null;
+function openTileDb(){
+  return new Promise(res=>{
+    if(tileDb) return res(tileDb);
+    const rq=indexedDB.open('tilecache',1);
+    rq.onupgradeneeded=()=>rq.result.createObjectStore('t');
+    rq.onsuccess=()=>{ tileDb=rq.result; res(tileDb); };
+    rq.onerror=()=>res(null);
+  });
+}
+function tileGet(k){ return new Promise(res=>openTileDb().then(db=>{ if(!db)return res(null); const r=db.transaction('t').objectStore('t').get(k); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null); })); }
+function tilePut(k,b){ openTileDb().then(db=>{ if(db) db.transaction('t','readwrite').objectStore('t').put(b,k); }); }
+
+function cachedTileLayer(url){
+  const Cached=L.TileLayer.extend({
+    createTile(coords, done){
+      const img=document.createElement('img'); img.alt='';
+      const key=this.getTileUrl(coords);
+      tileGet(key).then(blob=>{
+        if(blob){ img.src=URL.createObjectURL(blob); done(null,img); return; }
+        fetch(key).then(r=>r.ok?r.blob():Promise.reject())
+          .then(b=>{ tilePut(key,b); img.src=URL.createObjectURL(b); done(null,img); })
+          .catch(()=>done(null,img));   // offline & uncached → blank
+      });
+      return img;
+    }
+  });
+  return new Cached(url,{maxZoom:19});
+}
+
+$('btnNewSession').addEventListener('click',()=>{ fetch(API+'/api/session/new',{method:'POST'}).then(()=>loadSessions()).catch(()=>{}); });
+$('btnClearSessions').addEventListener('click',()=>{ if(!confirm('Delete ALL saved sessions except the active one?'))return; fetch(API+'/api/session/clear',{method:'POST'}).then(()=>loadSessions()).catch(()=>{}); });
+$('btnDownload').addEventListener('click',()=>{ window.location.href=API+'/api/download'; });
+$('btnOpenFile').addEventListener('click',()=>$('fileInput').click());
+$('fileInput').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  f.arrayBuffer().then(buf=>{
+    const ss=parseSessions(buf);
+    if(!ss.length){ alert('No valid session data in this file.'); return; }
+    ss.forEach(s=>s.local=true);
+    localFile={name:f.name, sessions:ss};
+    renderSessionList();
+    selectSession(ss[0]);
+  });
+  e.target.value='';
+});
+window.addEventListener('resize',()=>{ if($('panel-data').classList.contains('active')) drawChart(); });
 
 connectSSE();
 </script>

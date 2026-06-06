@@ -1,6 +1,7 @@
 #include "can.h"
 #include "config.h"
 #include "control.h"
+#include "datalog.h"
 #include "encoder_can.h"
 #include "esp_log.h"
 #include "height.h"
@@ -60,6 +61,10 @@ void app_main(void) {
   }
 
   (void)height_init();
+
+  if (datalog_init() != ESP_OK) {
+    ESP_LOGW(TAG, "datalog init failed — logging disabled");
+  }
 
   webui_start();
 }
