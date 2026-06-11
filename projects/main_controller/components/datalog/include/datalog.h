@@ -18,7 +18,7 @@
  */
 
 #define DATALOG_MAGIC     0x444B534Au /* "JSKD" */
-#define DATALOG_VERSION   1
+#define DATALOG_VERSION   2
 #define DATALOG_SAMPLE_HZ 10
 
 /* One logged sample. Fixed-point: *_x10 = value*10, speed_x100 = knots*100.
@@ -40,25 +40,54 @@ typedef struct __attribute__((packed)) {
     int16_t  course_x10;
     float    lat_deg;
     float    lon_deg;
-    uint8_t  flags;              /* bit0: armed, bit1: gps_valid */
+    uint8_t  flags;              /* bit1: gps_valid */
     uint8_t  _pad;
 } datalog_record_t;
 
-#define DATALOG_FLAG_ARMED     0x01u
 #define DATALOG_FLAG_GPS_VALID 0x02u
 
+typedef struct __attribute__((packed)) {
+    int32_t height_kp;
+    int32_t height_ki;
+    int32_t height_kd;
+    int32_t pitch_kp;
+    int32_t pitch_ki;
+    int32_t pitch_kd;
+    int32_t roll_kp;
+    int32_t roll_ki;
+    int32_t roll_kd;
+    int16_t rudder_exponent_x100;
+    int16_t rudder_max_roll_deg;
+    uint8_t height_enabled;
+    int16_t elevon_max_diff_deg;
+    int16_t pitch_target_max_deg;
+    int16_t height_target_cm;
+    int16_t imu_pitch_offset_x10;
+    int16_t imu_roll_offset_x10;
+    float   servo[2][5];
+} datalog_config_t;
+_Static_assert(sizeof(datalog_config_t) == 91, "datalog_config_t must be 91 bytes");
+
+typedef struct __attribute__((packed)) {
+    uint32_t t_ms;
+    datalog_config_t cfg;
+} datalog_cfgevent_t;
+_Static_assert(sizeof(datalog_cfgevent_t) == 95, "datalog_cfgevent_t must be 95 bytes");
+
 /* Container header. In a download / "open file" blob, each session is one
- * [datalog_header_t][record_count * datalog_record_t] block; blocks concatenate
- * so a single file can hold many sessions. record_count is filled at serialize
- * time (on flash the count is derived from file size). */
+ * [datalog_header_t][record_count * datalog_record_t][cfgevent_count *
+ * datalog_cfgevent_t] block; blocks concatenate so a single file can hold many
+ * sessions. Counts are filled at serialize time. */
 typedef struct __attribute__((packed)) {
     uint32_t magic;
     uint16_t version;
     uint16_t record_size;
     uint32_t session_id;
     uint32_t record_count;
-    uint32_t reserved;
+    uint16_t cfgevent_size;
+    uint32_t cfgevent_count;
 } datalog_header_t;
+_Static_assert(sizeof(datalog_header_t) == 22, "datalog_header_t must be 22 bytes");
 
 typedef struct {
     uint32_t id;
@@ -85,7 +114,13 @@ esp_err_t datalog_delete_all(void);
 void      datalog_storage_info(size_t *total, size_t *used);
 
 uint32_t  datalog_session_record_count(uint32_t id);
+uint32_t  datalog_session_cfgevent_count(uint32_t id);
+
+void      datalog_config_capture(datalog_config_t *out);
+void      datalog_config_apply(const datalog_config_t *in);
+esp_err_t datalog_log_config_event(void);
 
 /* Random-access read of a session's record bytes (no header). Returns bytes
  * read (0 at EOF) or -1 on error. */
 int       datalog_read_session(uint32_t id, size_t offset, void *buf, size_t len);
+int       datalog_read_session_cfg(uint32_t id, size_t offset, void *buf, size_t len);

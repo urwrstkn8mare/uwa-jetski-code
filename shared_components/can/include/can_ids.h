@@ -53,9 +53,8 @@ typedef struct __attribute__((packed)) {
     uint8_t  height_target_cm;       /* 0..100 cm, integer */
     int16_t  pitch_target_deg_x10;   /* degrees * 10, e.g. 123 = 12.3° */
     int16_t  roll_target_deg_x10;    /* degrees * 10 */
-    uint8_t  flags;                  /* bit 0: armed */
 } can_ctrl_status_t;
-_Static_assert(sizeof(can_ctrl_status_t) == 6, "CAN ctrl status frame must be 6 bytes");
+_Static_assert(sizeof(can_ctrl_status_t) == 5, "CAN ctrl status frame must be 5 bytes");
 
 /* Joystick Y axis from aux controller (0..100, 50 = centre) */
 typedef struct __attribute__((packed)) {
@@ -69,14 +68,10 @@ typedef struct __attribute__((packed)) {
 } can_rudder_angle_t;
 _Static_assert(sizeof(can_rudder_angle_t) == 2, "CAN rudder angle frame must be 2 bytes");
 
-/* Control loop performance stats (sent by main controller).
- * is_armed=1 → stats are from the armed PID loop; 0 → disarmed joystick loop. */
+/* Control loop performance stats (sent by main controller). */
 typedef struct __attribute__((packed)) {
     uint16_t iter_avg_us;  /* avg iteration time in microseconds */
     uint16_t iter_max_us;  /* max iteration time in microseconds */
     uint16_t iter_hz;      /* average iterations per second (Hz) */
-    uint8_t  is_armed;     /* 1 = armed loop, 0 = disarmed loop */
-    uint8_t  _pad;
 } can_ctrl_perf_t;
-_Static_assert(sizeof(can_ctrl_perf_t) == 8, "CAN ctrl perf frame must be 8 bytes");
-
+_Static_assert(sizeof(can_ctrl_perf_t) == 6, "CAN ctrl perf frame must be 6 bytes");

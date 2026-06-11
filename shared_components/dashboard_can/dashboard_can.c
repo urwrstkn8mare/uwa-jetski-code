@@ -177,8 +177,7 @@ static void on_can_rx(const uint8_t buffer[8], uint32_t header_id, uint64_t time
   case CAN_ID_CTRL_PERF: {
     can_ctrl_perf_t perf;
     memcpy(&perf, buffer, sizeof(perf));
-    status_ui_update(perf.is_armed ? "perf_armed" : "perf_disarmed",
-                     "iter %u/%uus avg %uHz",
+    status_ui_update("perf", "iter %u/%uus avg %uHz",
                      (unsigned)perf.iter_avg_us,
                      (unsigned)perf.iter_max_us,
                      (unsigned)perf.iter_hz);

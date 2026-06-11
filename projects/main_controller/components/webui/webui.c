@@ -38,6 +38,12 @@ static TimerHandle_t s_heartbeat_timer;
 
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t app_css_start[] asm("_binary_app_css_gz_start");
+extern const uint8_t app_css_end[]   asm("_binary_app_css_gz_end");
+extern const uint8_t app_js_start[] asm("_binary_app_js_gz_start");
+extern const uint8_t app_js_end[]   asm("_binary_app_js_gz_end");
+extern const uint8_t live_js_start[] asm("_binary_live_js_gz_start");
+extern const uint8_t live_js_end[]   asm("_binary_live_js_gz_end");
 extern const uint8_t leaflet_js_start[] asm("_binary_leaflet_js_gz_start");
 extern const uint8_t leaflet_js_end[]   asm("_binary_leaflet_js_gz_end");
 extern const uint8_t leaflet_css_start[] asm("_binary_leaflet_css_gz_start");
@@ -106,12 +112,10 @@ static int build_state_json(char *buf, size_t sz) {
     control_get_status(&st);
     return snprintf(buf, sz,
         "{"
-        "\"armed\":%s,"
         "\"cal_mode\":%s,"
         "\"elevon_left_deg\":%.1f,"
         "\"elevon_right_deg\":%.1f"
         "}",
-        st.armed ? "true" : "false",
         servo_drive_any_cal_mode() ? "true" : "false",
         (double)st.elevon_left_deg,
         (double)st.elevon_right_deg);
@@ -293,6 +297,7 @@ static esp_err_t api_put_servo_calibration(httpd_req_t *req) {
         return json_error_resp(req, "angle range must span zero (one negative, one positive)");
 
     servo_drive_apply_cal((servo_channel_t)handle, &cal);
+    (void)datalog_log_config_event();
 
     return json_ok_resp(req);
 }
@@ -319,9 +324,6 @@ static esp_err_t api_post_servo_cal_mode(httpd_req_t *req) {
         return json_error_resp(req, "invalid handle");
     }
 
-    if (enabled) {
-        control_disarm();
-    }
     servo_drive_set_cal_mode((servo_channel_t)handle, enabled);
 
     return json_ok_resp(req);
@@ -470,6 +472,7 @@ static esp_err_t api_put_config(httpd_req_t *req) {
     free(buf);
 
     control_apply_cfg(&ctrl);
+    (void)datalog_log_config_event();
 
     return json_ok_resp(req);
 }
@@ -521,6 +524,7 @@ static esp_err_t api_put_imu(httpd_req_t *req) {
     free(buf);
 
     imu_apply_cfg(&cfg);
+    (void)datalog_log_config_event();
     return json_ok_resp(req);
 }
 
@@ -544,6 +548,26 @@ static esp_err_t api_post_rudder_zero(httpd_req_t *req) {
     if (encoder_can_zero() != ESP_OK) {
         return json_error_resp(req, "zero command failed");
     }
+    return json_ok_resp(req);
+}
+
+static esp_err_t api_post_config_restore(httpd_req_t *req) {
+    if (req->content_len != sizeof(datalog_config_t)) {
+        return json_error_resp(req, "invalid snapshot size");
+    }
+
+    datalog_config_t cfg;
+    uint8_t *p = (uint8_t *)&cfg;
+    size_t remaining = sizeof(cfg);
+    while (remaining > 0) {
+        int ret = httpd_req_recv(req, (char *)p, remaining);
+        if (ret <= 0) return json_error_resp(req, "recv failed");
+        p += ret;
+        remaining -= (size_t)ret;
+    }
+
+    datalog_config_apply(&cfg);
+    (void)datalog_log_config_event();
     return json_ok_resp(req);
 }
 
@@ -597,16 +621,18 @@ static esp_err_t api_post_session_clear(httpd_req_t *req) {
     return json_ok_resp(req);
 }
 
-/* Stream one session as a [header][records] container block over chunks. */
+/* Stream one session as a [header][records][config events] container block. */
 static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, size_t buf_sz) {
     uint32_t count = datalog_session_record_count(id);
+    uint32_t cfg_count = datalog_session_cfgevent_count(id);
     datalog_header_t hdr = {
         .magic = DATALOG_MAGIC,
         .version = DATALOG_VERSION,
         .record_size = sizeof(datalog_record_t),
         .session_id = id,
         .record_count = count,
-        .reserved = 0,
+        .cfgevent_size = sizeof(datalog_cfgevent_t),
+        .cfgevent_count = cfg_count,
     };
     if (httpd_resp_send_chunk(req, (const char *)&hdr, sizeof(hdr)) != ESP_OK) return ESP_FAIL;
 
@@ -616,6 +642,17 @@ static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, si
         size_t want = total - sent;
         if (want > buf_sz) want = buf_sz;
         int got = datalog_read_session(id, sent, buf, want);
+        if (got <= 0) break;
+        if (httpd_resp_send_chunk(req, buf, (size_t)got) != ESP_OK) return ESP_FAIL;
+        sent += (size_t)got;
+    }
+
+    total = (size_t)cfg_count * sizeof(datalog_cfgevent_t);
+    sent = 0;
+    while (sent < total) {
+        size_t want = total - sent;
+        if (want > buf_sz) want = buf_sz;
+        int got = datalog_read_session_cfg(id, sent, buf, want);
         if (got <= 0) break;
         if (httpd_resp_send_chunk(req, buf, (size_t)got) != ESP_OK) return ESP_FAIL;
         sent += (size_t)got;
@@ -656,23 +693,34 @@ static esp_err_t api_get_download(httpd_req_t *req) {
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
-static esp_err_t api_arm(httpd_req_t *req) {
-    if (servo_drive_any_cal_mode()) {
-        return json_error_resp(req, "calibration active");
-    }
-    control_arm();
-    return json_ok_resp(req);
-}
-
-static esp_err_t api_disarm(httpd_req_t *req) {
-    control_disarm();
-    return json_ok_resp(req);
-}
-
 static esp_err_t index_handler(httpd_req_t *req) {
     size_t len = (size_t)(index_html_end - index_html_start);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, (const char *)index_html_start, len);
+}
+
+static esp_err_t app_css_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
+    return httpd_resp_send(req, (const char *)app_css_start,
+                           (size_t)(app_css_end - app_css_start));
+}
+
+static esp_err_t app_js_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
+    return httpd_resp_send(req, (const char *)app_js_start,
+                           (size_t)(app_js_end - app_js_start));
+}
+
+static esp_err_t live_js_handler(httpd_req_t *req) {
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
+    return httpd_resp_send(req, (const char *)live_js_start,
+                           (size_t)(live_js_end - live_js_start));
 }
 
 static esp_err_t leaflet_js_handler(httpd_req_t *req) {
@@ -763,6 +811,9 @@ static esp_err_t wifi_ap_init(void) {
 
 static const httpd_uri_t s_uris[] = {
     {.uri = "/",             .method = HTTP_GET,  .handler = index_handler},
+    {.uri = "/app.css",      .method = HTTP_GET,  .handler = app_css_handler},
+    {.uri = "/app.js",       .method = HTTP_GET,  .handler = app_js_handler},
+    {.uri = "/live.js",      .method = HTTP_GET,  .handler = live_js_handler},
     {.uri = "/leaflet.js",   .method = HTTP_GET,  .handler = leaflet_js_handler},
     {.uri = "/leaflet.css",  .method = HTTP_GET,  .handler = leaflet_css_handler},
     {.uri = "/api/events",   .method = HTTP_GET,  .handler = sse_handler},
@@ -773,6 +824,7 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/servos/raw_pw", .method = HTTP_POST, .handler = api_post_servo_raw_pw},
     {.uri = "/api/config",   .method = HTTP_GET,  .handler = api_get_config},
     {.uri = "/api/config",   .method = HTTP_PUT,  .handler = api_put_config},
+    {.uri = "/api/config/restore", .method = HTTP_POST, .handler = api_post_config_restore},
     {.uri = "/api/config/defaults", .method = HTTP_GET, .handler = api_get_config_defaults},
     {.uri = "/api/imu",      .method = HTTP_GET,  .handler = api_get_imu},
     {.uri = "/api/imu",      .method = HTTP_PUT,  .handler = api_put_imu},
@@ -785,13 +837,11 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/session/clear",   .method = HTTP_POST, .handler = api_post_session_clear},
     {.uri = "/api/session",         .method = HTTP_GET,  .handler = api_get_session},
     {.uri = "/api/download",        .method = HTTP_GET,  .handler = api_get_download},
-    {.uri = "/api/arm",      .method = HTTP_POST, .handler = api_arm},
-    {.uri = "/api/disarm",   .method = HTTP_POST, .handler = api_disarm},
 };
 
 static esp_err_t http_server_init(void) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 28;
+    cfg.max_uri_handlers = 30;
     cfg.lru_purge_enable = true;
     cfg.server_port = CONFIG_WEBUI_HTTP_PORT;
 

@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Jetski Control</title>
-<link rel="stylesheet" href="/leaflet.css">
-<link rel="stylesheet" href="/app.css">
+<title>Jetski Log Viewer</title>
+<link rel="stylesheet" href="./leaflet.css">
+<link rel="stylesheet" href="./app.css">
 </head>
-<body>
+<body class="viewer-mode">
 <header>
 <h1>Jetski Control</h1>
 <div class="status">
 <span id="connLed" class="conn-led"></span>
-<span id="headerStatus" class="live">LIVE</span>
+<span id="headerStatus" class="live">FILE VIEWER</span>
 <span id="headerCal" style="font-size:13px;color:#888"></span>
 </div>
 </header>
@@ -29,7 +29,7 @@
 <div class="telemetry-item"><div class="label">L Elevon</div><div class="val t-green" id="tElevonL">--</div></div>
 <div class="telemetry-item"><div class="label">R Elevon</div><div class="val t-green" id="tElevonR">--</div></div>
 </div>
-<div class="hint">Control is live from boot. Servo outputs stay neutral only while calibration mode is active.</div>
+<div class="hint">Open a downloaded session file from the Data tab.</div>
 </div>
 
 <div id="panel-config" class="panel">
@@ -167,9 +167,8 @@
 <span id="restoreMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
 </div>
 </div>
-<script>window.ONDEVICE=true;</script>
-<script src="/leaflet.js"></script>
-<script src="/app.js"></script>
-<script src="/live.js"></script>
+<script>window.ONDEVICE=false;</script>
+<script src="./leaflet.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

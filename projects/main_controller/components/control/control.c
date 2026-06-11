@@ -42,14 +42,12 @@ static const control_config_t s_control_defaults = {
 typedef struct {
     float elevon_left_deg;
     float elevon_right_deg;
-    bool  armed;
     float pitch_target_deg;
     float roll_target_deg;
     float joy_pitch_trim_deg;
 } control_output_t;
 
 static control_config_t s_cfg;
-static bool s_armed;
 
 static servo_channel_t s_servo_left  = SERVO_CHANNEL_INVALID;
 static servo_channel_t s_servo_right = SERVO_CHANNEL_INVALID;
@@ -83,8 +81,7 @@ typedef struct {
     uint32_t count;
 } perf_stats_t;
 
-static perf_stats_t s_armed_perf;
-static perf_stats_t s_disarmed_perf;
+static perf_stats_t s_perf;
 
 /* PID with derivative-on-measurement (no setpoint kick) and anti-windup
  * (integral contribution clamped to ±out_abs_max, the same bound the output
@@ -130,8 +127,6 @@ static void control_compute(int16_t height_cm,
     const float dt = 0.02f;
 
     memset(out, 0, sizeof(*out));
-
-    if (!s_armed) return;
 
     float kp_h = (float)s_cfg.height_kp / 1000.0f;
     float ki_h = (float)s_cfg.height_ki / 1000.0f;
@@ -187,7 +182,6 @@ static void control_compute(int16_t height_cm,
     float elevon_diff = apply_pid(roll_target_deg, roll_deg,
                                   kp_r, ki_r, kd_r, dt, max_diff, &s_roll_pid);
 
-    out->armed = true;
     out->elevon_left_deg  = elevon_center + elevon_diff;
     out->elevon_right_deg = elevon_center - elevon_diff;
     out->pitch_target_deg = pitch_target;
@@ -200,10 +194,6 @@ static void ctrl_task(void *arg) {
     (void)arg;
     for (;;) {
         int64_t t0 = esp_timer_get_time();
-
-        if (servo_drive_any_cal_mode() && s_armed) {
-            control_disarm();
-        }
 
         float rudder_angle = 0.0f;
         encoder_can_get_angle(&rudder_angle);
@@ -221,41 +211,36 @@ static void ctrl_task(void *arg) {
                         s_joy_y_pct, &out);
 
         if (!servo_drive_any_cal_mode()) {
-            float l = out.armed ? out.elevon_left_deg  : 0.0f;
-            float r = out.armed ? out.elevon_right_deg : 0.0f;
-            if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  l);
-            if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, r);
+            if (s_servo_left  != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_left,  out.elevon_left_deg);
+            if (s_servo_right != SERVO_CHANNEL_INVALID) servo_drive_set_degrees(s_servo_right, out.elevon_right_deg);
         }
 
         s_last_out = out;
 
         uint32_t dur_us = (uint32_t)(esp_timer_get_time() - t0);
-        perf_stats_t *ps = out.armed ? &s_armed_perf : &s_disarmed_perf;
-        if (dur_us < ps->min_us) ps->min_us = dur_us;
-        if (dur_us > ps->max_us) ps->max_us = dur_us;
-        ps->sum_us += dur_us;
-        ps->count++;
+        if (dur_us < s_perf.min_us) s_perf.min_us = dur_us;
+        if (dur_us > s_perf.max_us) s_perf.max_us = dur_us;
+        s_perf.sum_us += dur_us;
+        s_perf.count++;
 
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
-static void report_perf(perf_stats_t *s, bool is_armed) {
+static void report_perf(perf_stats_t *s) {
     if (s->count == 0) return;
 
     uint32_t avg_us = (uint32_t)(s->sum_us / s->count);
     uint32_t avg_hz = avg_us > 0 ? (1000000u / avg_us) : 0;
 
     status_ui_update("perf" ,
-                     "%s iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",is_armed ? "armed" : "disarmed" ,
+                     "iter %"PRIu32"/%"PRIu32"us avg %"PRIu32"Hz",
                      avg_us, s->max_us, avg_hz);
 
     can_ctrl_perf_t perf = {
         .iter_avg_us = (avg_us    > 0xFFFFu) ? 0xFFFFu : (uint16_t)avg_us,
         .iter_max_us = (s->max_us > 0xFFFFu) ? 0xFFFFu : (uint16_t)s->max_us,
         .iter_hz     = (avg_hz    > 0xFFFFu) ? 0xFFFFu : (uint16_t)avg_hz,
-        .is_armed    = is_armed ? 1u : 0u,
-        ._pad        = 0,
     };
     (void)can_tx(CAN_ID_CTRL_PERF, (const uint8_t *)&perf, sizeof(perf));
 
@@ -273,11 +258,10 @@ static void ctrl_tlm_task(void *arg) {
             .height_target_cm     = (uint8_t)(s_cfg.height_target_cm < 0 ? 0 : s_cfg.height_target_cm > 100 ? 100 : s_cfg.height_target_cm),
             .pitch_target_deg_x10 = (int16_t)(out.pitch_target_deg * 10.0f),
             .roll_target_deg_x10  = (int16_t)(out.roll_target_deg  * 10.0f),
-            .flags                = s_armed ? 1u : 0u,
         };
         (void)can_tx(CAN_ID_CTRL_STATUS, (const uint8_t *)&cs, sizeof(cs));
 
-        report_perf(s_armed ? &s_armed_perf : &s_disarmed_perf, s_armed);
+        report_perf(&s_perf);
 
         float max_diff   = (float)s_cfg.elevon_max_diff_deg;
         float max_angle  = servo_drive_get_effective_range_deg();
@@ -289,8 +273,7 @@ static void ctrl_tlm_task(void *arg) {
         int32_t height_cm = 30;
         height_get_cm(&height_cm);
 
-        status_ui_update("Control", "%s target=%d ht=%d L=%.2f R=%.2f",
-                         s_armed ? "ARMED" : "DISARM",
+        status_ui_update("Control", "target=%d ht=%d L=%.2f R=%.2f",
                          (int)s_cfg.height_target_cm, (int)height_cm,
                          (double)out.elevon_left_deg, (double)out.elevon_right_deg);
         status_ui_update("Limits", "max=%.2f ctr=%.2f diff=%.2f",
@@ -320,10 +303,8 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right) 
     }
     s_servo_left  = servo_left;
     s_servo_right = servo_right;
-    s_armed = false;
     reset_integrals();
-    s_armed_perf    = (perf_stats_t){.min_us = UINT32_MAX};
-    s_disarmed_perf = (perf_stats_t){.min_us = UINT32_MAX};
+    s_perf = (perf_stats_t){.min_us = UINT32_MAX};
 
     esp_err_t err = can_register_rx_cb(joystick_rx_cb);
     if (err != ESP_OK) {
@@ -339,7 +320,7 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right) 
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Control initialized, armed=%d target=%d", s_armed, s_cfg.height_target_cm);
+    ESP_LOGI(TAG, "Control initialized, target=%d", s_cfg.height_target_cm);
     return ESP_OK;
 }
 
@@ -369,27 +350,8 @@ void control_register_change_cb(void (*cb)(void)) {
     s_change_cb = cb;
 }
 
-void control_arm(void) {
-    if (!s_armed) {
-        s_armed = true;
-        reset_integrals();
-        ESP_LOGI(TAG, "Armed");
-        if (s_change_cb) s_change_cb();
-    }
-}
-
-void control_disarm(void) {
-    if (s_armed) {
-        s_armed = false;
-        reset_integrals();
-        ESP_LOGI(TAG, "Disarmed");
-        if (s_change_cb) s_change_cb();
-    }
-}
-
 void control_get_status(control_status_t *out) {
     if (out == NULL) return;
-    out->armed              = s_armed;
     out->elevon_left_deg    = s_last_out.elevon_left_deg;
     out->elevon_right_deg   = s_last_out.elevon_right_deg;
     out->pitch_target_deg   = s_last_out.pitch_target_deg;

@@ -49,7 +49,6 @@ typedef struct {
 
 /* Snapshot of control state for display/telemetry consumers. */
 typedef struct {
-    bool    armed;
     float   elevon_left_deg;
     float   elevon_right_deg;
     float   pitch_target_deg;
@@ -67,9 +66,6 @@ esp_err_t control_init(servo_channel_t servo_left, servo_channel_t servo_right);
 void control_apply_cfg(const control_config_t *cfg);
 void control_get_cfg(control_config_t *cfg);
 void control_get_defaults(control_config_t *cfg);
-
-void control_arm(void);
-void control_disarm(void);
 
 void control_get_status(control_status_t *out);
 
