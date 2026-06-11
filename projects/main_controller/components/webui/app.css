@@ -68,6 +68,9 @@ header .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-lef
 .sess-row .warn{color:#ffd93d;font-size:14px}
 .sess-row .del{color:#e94560;background:none;border:none;cursor:pointer;font-size:18px;min-width:44px;min-height:44px;padding:0 4px}
 .legend{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.mode-bar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.mode-btn{min-height:40px;padding:8px 12px;border:1px solid #284060;border-radius:6px;background:#0f3460;color:#9aa6c2;font-size:13px;font-weight:600}
+.mode-btn.active{border-color:#4ecca3;color:#4ecca3;background:rgba(78,204,163,.08)}
 .legend .chip{display:flex;align-items:center;gap:5px;font-size:13px;min-height:38px;padding:8px 10px;border-radius:14px;background:#0f3460;cursor:pointer;user-select:none;opacity:.45;border:1px solid #243}
 .legend .chip.on{opacity:1}
 .legend .chip.static{cursor:default}

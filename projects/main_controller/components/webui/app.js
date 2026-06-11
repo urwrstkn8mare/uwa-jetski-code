@@ -343,13 +343,51 @@ const CH = [
   {k:'roll_out',   l:'Roll out °',    c:'#e0aaff', off:68, sc:0.1},
 ];
 const DEFAULT_ON = ['pitch','roll','pitch_t'];
+const BASE_KEYS = ['pitch','roll','yaw','height','rudder','pitch_t','roll_t','height_t','joy','elL','elR','center','diff','speed','course'];
+const GRAPH_MODES = {
+  all: {
+    label: 'All',
+    keys: BASE_KEYS,
+    defaults: DEFAULT_ON,
+  },
+  pitch: {
+    label: 'Pitch PID',
+    keys: ['pitch','pitch_t','pitch_err','pitch_out','pitch_p','pitch_i','pitch_d'],
+    defaults: ['pitch','pitch_t','pitch_out'],
+    panels: [
+      {title:'Pitch response', keys:['pitch','pitch_t','pitch_err']},
+      {title:'Pitch controller', keys:['pitch_out','pitch_p','pitch_i','pitch_d']},
+    ],
+  },
+  roll: {
+    label: 'Roll PID',
+    keys: ['roll','roll_t','roll_err','roll_out','roll_p','roll_i','roll_d'],
+    defaults: ['roll','roll_t','roll_out'],
+    panels: [
+      {title:'Roll response', keys:['roll','roll_t','roll_err']},
+      {title:'Roll controller', keys:['roll_out','roll_p','roll_i','roll_d']},
+    ],
+  },
+  height: {
+    label: 'Height PID',
+    keys: ['height','height_t','height_err','height_out','height_p','height_i','height_d'],
+    defaults: ['height','height_t','height_out'],
+    panels: [
+      {title:'Height response', keys:['height','height_t','height_err']},
+      {title:'Height controller', keys:['height_out','height_p','height_i','height_d']},
+    ],
+  },
+};
 
 let dataSession = null;          // {id, n, t, cols{}, lat, lon, gps}
 let visible = new Set(DEFAULT_ON);
+let graphMode = 'all';
 let selIndex = -1;
 let sessionsMeta = [], currentSessionId = 0, localFile = null;
 let map = null, trackLine = null, selMarker = null;
 let selectedConfigEvent = null;
+const CH_BY_KEY = {};
+CH.forEach(ch => { CH_BY_KEY[ch.k] = ch; });
 
 const CFG_FIELDS = [
   ['height_kp','Height P','i32',0], ['height_ki','Height I','i32',4], ['height_kd','Height D','i32',8],
@@ -422,6 +460,7 @@ function fmtDur(ms){ const s=Math.round(ms/1000); return s<60 ? s+'s' : Math.flo
 
 function openDataTab(){
   loadSessions();
+  buildModeControls();
   buildLegend();
   ensureMap();
   setTimeout(()=>{ if(map) map.invalidateSize(); }, 60);
@@ -504,6 +543,7 @@ function selectSession(s){
   selIndex = -1;
   $('chartTitle').textContent = 'Graphs — Session '+s.id+' ('+s.n+' pts)';
   renderSessionList();
+  buildModeControls();
   buildLegend();
   drawChart();
   updateTrack();
@@ -513,7 +553,8 @@ function selectSession(s){
 
 function buildLegend(){
   const el=$('legend'); el.innerHTML='';
-  CH.forEach(ch=>{
+  const mode = GRAPH_MODES[graphMode] || GRAPH_MODES.all;
+  mode.keys.map(k => CH_BY_KEY[k]).filter(Boolean).forEach(ch=>{
     const chip=document.createElement('span');
     chip.className='chip'+(visible.has(ch.k)?' on':'');
     chip.innerHTML=`<span class="sw line${ch.dash?' dash':''}" style="border-color:${ch.c}"></span>${ch.l}${ch.dash?' <span class="dash-label">dashed</span>':''}`;
@@ -527,6 +568,34 @@ function buildLegend(){
   cfgChip.className='chip on static';
   cfgChip.innerHTML='<span class="sw cfg-change"></span>Config change';
   el.appendChild(cfgChip);
+}
+
+function buildModeControls(){
+  const legend = $('legend');
+  if (!legend) return;
+  let el = $('chartModes');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'chartModes';
+    el.className = 'mode-bar';
+    legend.parentNode.insertBefore(el, legend);
+  }
+  el.innerHTML = '';
+  Object.keys(GRAPH_MODES).forEach(k => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mode-btn' + (graphMode === k ? ' active' : '');
+    btn.textContent = GRAPH_MODES[k].label;
+    btn.addEventListener('click', () => {
+      graphMode = k;
+      visible = new Set(GRAPH_MODES[k].defaults);
+      buildModeControls();
+      buildLegend();
+      drawChart();
+      updateReadout();
+    });
+    el.appendChild(btn);
+  });
 }
 
 function nearestByTime(tt){
@@ -553,22 +622,18 @@ function drawChart(){
   cv.width=w*dpr; cv.height=h*dpr; cv.style.height=h+'px';
   const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
   if(!dataSession||!dataSession.n) return;
-  const padL=46,padR=8,padT=10,padB=18, plotW=w-padL-padR, plotH=h-padT-padB;
-  const t=dataSession.t, n=dataSession.n, tmax=t[n-1]||1;
-  const vis=CH.filter(ch=>visible.has(ch.k));
-  let mn=Infinity,mx=-Infinity;
-  vis.forEach(ch=>{ const a=dataSession.cols[ch.k]; for(let i=0;i<n;i++){ const v=a[i]; if(v<mn)mn=v; if(v>mx)mx=v; } });
-  if(mn===Infinity){ mn=-1; mx=1; }
-  if(mn===mx){ mn-=1; mx+=1; }
-  const p=(mx-mn)*0.08; mn-=p; mx+=p;
-  const X=i=>padL+(t[i]/tmax)*plotW, Y=v=>padT+(1-(v-mn)/(mx-mn))*plotH;
-  ctx.font='10px monospace'; ctx.lineWidth=1;
-  for(let g=0;g<=4;g++){
-    const yy=padT+plotH*g/4, val=mx-(mx-mn)*g/4;
-    ctx.strokeStyle='#23314f'; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
-    ctx.fillStyle='#7a89a8'; ctx.fillText(val.toFixed(1).padStart(6), 2, yy+3);
+  const mode = GRAPH_MODES[graphMode] || GRAPH_MODES.all;
+  if (mode.panels) {
+    const gap = 24;
+    const panelH = (h - gap) / 2;
+    drawChartPanel(ctx, w, 0, panelH, mode.panels[0].keys, mode.panels[0].title);
+    drawChartPanel(ctx, w, panelH + gap, panelH, mode.panels[1].keys, mode.panels[1].title);
+    return;
   }
-  if(mn<0&&mx>0){ ctx.strokeStyle='#44557a'; ctx.beginPath(); ctx.moveTo(padL,Y(0)); ctx.lineTo(w-padR,Y(0)); ctx.stroke(); }
+  drawChartPanel(ctx, w, 0, h, mode.keys, null);
+}
+
+function drawConfigLines(ctx, padL, padT, plotW, plotH, tmax){
   if(dataSession.cfgEvents && dataSession.cfgEvents.length > 1){
     ctx.save();
     ctx.strokeStyle='#ffd93d';
@@ -584,6 +649,30 @@ function drawChart(){
     });
     ctx.restore();
   }
+}
+
+function drawChartPanel(ctx, w, y0, h, keys, title){
+  const padL=46,padR=8,padT=y0+18,padB=18, plotW=w-padL-padR, plotH=h-28-padB;
+  const t=dataSession.t, n=dataSession.n, tmax=t[n-1]||1;
+  const vis=keys.map(k => CH_BY_KEY[k]).filter(ch=>ch && visible.has(ch.k));
+  let mn=Infinity,mx=-Infinity;
+  vis.forEach(ch=>{ const a=dataSession.cols[ch.k]; for(let i=0;i<n;i++){ const v=a[i]; if(v<mn)mn=v; if(v>mx)mx=v; } });
+  if(mn===Infinity){ mn=-1; mx=1; }
+  if(mn===mx){ mn-=1; mx+=1; }
+  const p=(mx-mn)*0.08; mn-=p; mx+=p;
+  const X=i=>padL+(t[i]/tmax)*plotW, Y=v=>padT+(1-(v-mn)/(mx-mn))*plotH;
+  ctx.font='10px monospace'; ctx.lineWidth=1;
+  if (title) {
+    ctx.fillStyle='#9aa6c2';
+    ctx.fillText(title, padL, y0 + 10);
+  }
+  for(let g=0;g<=4;g++){
+    const yy=padT+plotH*g/4, val=mx-(mx-mn)*g/4;
+    ctx.strokeStyle='#23314f'; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
+    ctx.fillStyle='#7a89a8'; ctx.fillText(val.toFixed(1).padStart(6), 2, yy+3);
+  }
+  if(mn<0&&mx>0){ ctx.strokeStyle='#44557a'; ctx.beginPath(); ctx.moveTo(padL,Y(0)); ctx.lineTo(w-padR,Y(0)); ctx.stroke(); }
+  drawConfigLines(ctx, padL, padT, plotW, plotH, tmax);
   ctx.lineWidth=1.5;
   vis.forEach(ch=>{
     const a=dataSession.cols[ch.k];
