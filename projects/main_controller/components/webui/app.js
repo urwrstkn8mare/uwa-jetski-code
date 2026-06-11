@@ -616,6 +616,31 @@ function nearestByLatLng(la,lo){
   return best;
 }
 
+function gpsDistanceM(aLat, aLon, bLat, bLon){
+  const latM=(bLat-aLat)*111320;
+  const lonM=(bLon-aLon)*111320*Math.cos(((aLat+bLat)*0.5)*Math.PI/180);
+  return Math.sqrt(latM*latM + lonM*lonM);
+}
+
+function displayGpsIndexes(){
+  if(!dataSession || !dataSession.n) return [];
+  const raw=[];
+  for(let i=0;i<dataSession.n;i++) if(dataSession.gps[i]) raw.push(i);
+  if(raw.length <= 2) return raw;
+  const out=[raw[0]];
+  let last=raw[0];
+  for(let j=1;j<raw.length-1;j++){
+    const i=raw[j];
+    if(gpsDistanceM(dataSession.lat[last], dataSession.lon[last], dataSession.lat[i], dataSession.lon[i]) >= 1.5){
+      out.push(i);
+      last=i;
+    }
+  }
+  const final=raw[raw.length-1];
+  if(out[out.length-1] !== final) out.push(final);
+  return out;
+}
+
 function drawChart(){
   const cv=$('chart'), wrap=$('chartWrap');
   const w=wrap.clientWidth||600, h=cv.clientHeight||320, dpr=window.devicePixelRatio||1;
@@ -759,11 +784,11 @@ function updateTrack(){
   if(trackLine){ trackLine.remove(); trackLine=null; }
   if(headingLayer){ headingLayer.remove(); headingLayer=null; }
   if(selMarker){ selMarker.remove(); selMarker=null; }
-  const pts=[];
-  for(let i=0;i<dataSession.n;i++){ if(dataSession.gps[i]) pts.push([dataSession.lat[i],dataSession.lon[i]]); }
+  const gpsIdx=displayGpsIndexes();
+  const pts=gpsIdx.map(i=>[dataSession.lat[i],dataSession.lon[i]]);
   if(pts.length){
     trackLine=L.polyline(pts,{color:'#4ecca3',weight:3}).addTo(map);
-    headingLayer=createHeadingLayer().addTo(map);
+    headingLayer=createHeadingLayer(gpsIdx).addTo(map);
     map.fitBounds(trackLine.getBounds(),{padding:[20,20]});
   }
   setTimeout(()=>map.invalidateSize(),50);
@@ -777,11 +802,9 @@ function headingEnd(lat, lon, headingDeg, lengthM){
   return [lat2*180/Math.PI, lon2*180/Math.PI];
 }
 
-function createHeadingLayer(){
+function createHeadingLayer(gpsIndexes){
   const layer=L.layerGroup();
   if(!dataSession || !dataSession.n) return layer;
-  const gpsIndexes=[];
-  for(let i=0;i<dataSession.n;i++) if(dataSession.gps[i]) gpsIndexes.push(i);
   const step=Math.max(1, Math.ceil(gpsIndexes.length/28));
   for(let j=0;j<gpsIndexes.length;j+=step){
     const i=gpsIndexes[j], lat=dataSession.lat[i], lon=dataSession.lon[i];
