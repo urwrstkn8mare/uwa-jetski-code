@@ -45,6 +45,9 @@ typedef struct {
     float pitch_target_deg;
     float roll_target_deg;
     float joy_pitch_trim_deg;
+    control_pid_terms_t height_pid;
+    control_pid_terms_t pitch_pid;
+    control_pid_terms_t roll_pid;
 } control_output_t;
 
 static control_config_t s_cfg;
@@ -89,7 +92,8 @@ static perf_stats_t s_perf;
 static float apply_pid(float setpoint, float input,
                        float kp, float ki, float kd,
                        float dt, float out_abs_max,
-                       pid_state_t *st) {
+                       pid_state_t *st,
+                       control_pid_terms_t *terms) {
     float error = setpoint - input;
 
     if (st->first) {
@@ -105,9 +109,19 @@ static float apply_pid(float setpoint, float input,
     float d_input = (input - st->prev_input) / dt;
     st->prev_input = input;
 
-    float out = kp * error + st->integral - kd * d_input;
+    float p_term = kp * error;
+    float i_term = st->integral;
+    float d_term = -kd * d_input;
+    float out = p_term + i_term + d_term;
     if (out >  out_abs_max) out =  out_abs_max;
     if (out < -out_abs_max) out = -out_abs_max;
+    if (terms != NULL) {
+        terms->error = error;
+        terms->p = p_term;
+        terms->i = i_term;
+        terms->d = d_term;
+        terms->output = out;
+    }
     return out;
 }
 
@@ -154,17 +168,20 @@ static void control_compute(int16_t height_cm,
     float pitch_target;
     if (s_cfg.height_enabled) {
         pitch_target = apply_pid((float)s_cfg.height_target_cm, (float)height_cm,
-                                 kp_h, ki_h, kd_h, dt, pitch_target_abs_max, &s_height_pid);
+                                 kp_h, ki_h, kd_h, dt, pitch_target_abs_max, &s_height_pid,
+                                 &out->height_pid);
         pitch_target += joy_pitch_trim;
     } else {
         pitch_target = joy_pitch_trim;
         s_height_pid.first = true;
+        out->height_pid.error = (float)s_cfg.height_target_cm - (float)height_cm;
     }
     if (pitch_target >  pitch_target_abs_max) pitch_target =  pitch_target_abs_max;
     if (pitch_target < -pitch_target_abs_max) pitch_target = -pitch_target_abs_max;
 
     float elevon_center = apply_pid(pitch_target, pitch_deg,
-                                    kp_p, ki_p, kd_p, dt, max_center, &s_pitch_pid);
+                                    kp_p, ki_p, kd_p, dt, max_center, &s_pitch_pid,
+                                    &out->pitch_pid);
 
     /* Rudder steering → roll target, shaped by the exponent. Sign convention:
      * positive rudder angle commands a negative (left) roll target. */
@@ -180,7 +197,8 @@ static void control_compute(int16_t height_cm,
     if (roll_target_deg < -max_roll) roll_target_deg = -max_roll;
 
     float elevon_diff = apply_pid(roll_target_deg, roll_deg,
-                                  kp_r, ki_r, kd_r, dt, max_diff, &s_roll_pid);
+                                  kp_r, ki_r, kd_r, dt, max_diff, &s_roll_pid,
+                                  &out->roll_pid);
 
     out->elevon_left_deg  = elevon_center + elevon_diff;
     out->elevon_right_deg = elevon_center - elevon_diff;
@@ -357,4 +375,7 @@ void control_get_status(control_status_t *out) {
     out->pitch_target_deg   = s_last_out.pitch_target_deg;
     out->roll_target_deg    = s_last_out.roll_target_deg;
     out->joy_pitch_trim_deg = s_last_out.joy_pitch_trim_deg;
+    out->height_pid         = s_last_out.height_pid;
+    out->pitch_pid          = s_last_out.pitch_pid;
+    out->roll_pid           = s_last_out.roll_pid;
 }

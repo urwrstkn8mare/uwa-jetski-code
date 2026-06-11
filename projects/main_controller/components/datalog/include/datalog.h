@@ -18,7 +18,7 @@
  */
 
 #define DATALOG_MAGIC     0x444B534Au /* "JSKD" */
-#define DATALOG_VERSION   2
+#define DATALOG_VERSION   3
 #define DATALOG_SAMPLE_HZ 10
 
 /* One logged sample. Fixed-point: *_x10 = value*10, speed_x100 = knots*100.
@@ -42,7 +42,23 @@ typedef struct __attribute__((packed)) {
     float    lon_deg;
     uint8_t  flags;              /* bit1: gps_valid */
     uint8_t  _pad;
+    int16_t  height_error_x10;
+    int16_t  height_p_x10;
+    int16_t  height_i_x10;
+    int16_t  height_d_x10;
+    int16_t  height_out_x10;
+    int16_t  pitch_error_x10;
+    int16_t  pitch_p_x10;
+    int16_t  pitch_i_x10;
+    int16_t  pitch_d_x10;
+    int16_t  pitch_out_x10;
+    int16_t  roll_error_x10;
+    int16_t  roll_p_x10;
+    int16_t  roll_i_x10;
+    int16_t  roll_d_x10;
+    int16_t  roll_out_x10;
 } datalog_record_t;
+_Static_assert(sizeof(datalog_record_t) == 70, "datalog_record_t must be 70 bytes");
 
 #define DATALOG_FLAG_GPS_VALID 0x02u
 

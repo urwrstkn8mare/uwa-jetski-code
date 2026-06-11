@@ -49,11 +49,22 @@ typedef struct {
 
 /* Snapshot of control state for display/telemetry consumers. */
 typedef struct {
+    float error;
+    float p;
+    float i;
+    float d;
+    float output;
+} control_pid_terms_t;
+
+typedef struct {
     float   elevon_left_deg;
     float   elevon_right_deg;
     float   pitch_target_deg;
     float   roll_target_deg;
     float   joy_pitch_trim_deg;  /* joystick-induced pitch offset */
+    control_pid_terms_t height_pid;
+    control_pid_terms_t pitch_pid;
+    control_pid_terms_t roll_pid;
 } control_status_t;
 
 /* Initialise the control loop and start its tasks. Loads persisted config

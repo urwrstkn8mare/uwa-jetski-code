@@ -49,6 +49,12 @@ static void lock(void)   { xSemaphoreTakeRecursive(s_lock, portMAX_DELAY); }
 static void unlock(void) { xSemaphoreGiveRecursive(s_lock); }
 static void close_session(void);
 
+static int16_t q10(float v) {
+    if (v > 3276.7f) return INT16_MAX;
+    if (v < -3276.8f) return INT16_MIN;
+    return (int16_t)lroundf(v * 10.0f);
+}
+
 static void session_path(uint32_t id, char *buf, size_t n) {
     snprintf(buf, n, MOUNT_POINT "/s%08" PRIu32 ".bin", id);
 }
@@ -300,6 +306,21 @@ static void build_record(datalog_record_t *r) {
     r->joy_pitch_trim_x10 = (int16_t)lroundf(cs.joy_pitch_trim_deg * 10.0f);
     r->elevon_l_x10       = (int16_t)lroundf(cs.elevon_left_deg * 10.0f);
     r->elevon_r_x10       = (int16_t)lroundf(cs.elevon_right_deg * 10.0f);
+    r->height_error_x10   = q10(cs.height_pid.error);
+    r->height_p_x10       = q10(cs.height_pid.p);
+    r->height_i_x10       = q10(cs.height_pid.i);
+    r->height_d_x10       = q10(cs.height_pid.d);
+    r->height_out_x10     = q10(cs.height_pid.output);
+    r->pitch_error_x10    = q10(cs.pitch_pid.error);
+    r->pitch_p_x10        = q10(cs.pitch_pid.p);
+    r->pitch_i_x10        = q10(cs.pitch_pid.i);
+    r->pitch_d_x10        = q10(cs.pitch_pid.d);
+    r->pitch_out_x10      = q10(cs.pitch_pid.output);
+    r->roll_error_x10     = q10(cs.roll_pid.error);
+    r->roll_p_x10         = q10(cs.roll_pid.p);
+    r->roll_i_x10         = q10(cs.roll_pid.i);
+    r->roll_d_x10         = q10(cs.roll_pid.d);
+    r->roll_out_x10       = q10(cs.roll_pid.output);
 
     control_config_t cfg;
     control_get_cfg(&cfg);

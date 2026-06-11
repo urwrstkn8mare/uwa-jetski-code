@@ -304,7 +304,7 @@ function sendRawPw(handle, pulse_us) {
 
 /* ── Data tab: sessions, binary parsing, graphs, track map ── */
 const DATALOG_MAGIC = 0x444B534A; // "JSKD" LE
-const REC_SIZE = 40;
+const REC_SIZE = 70;
 const HEADER_SIZE = 22;
 const CFG_SIZE = 91;
 const CFG_EVENT_SIZE = 95;
@@ -326,6 +326,21 @@ const CH = [
   {k:'diff',     l:'Diff °',       c:'#ff9e00', der:(d,b)=>(d.getInt16(b+22,true)-d.getInt16(b+24,true))/2*0.1},
   {k:'speed',    l:'Speed kn',     c:'#06d6a0', off:26, sc:0.01},
   {k:'course',   l:'Course °',     c:'#8338ec', off:28, sc:0.1},
+  {k:'height_err', l:'Height err cm', c:'#f4a261', off:40, sc:0.1},
+  {k:'height_p',   l:'Height P °',    c:'#e76f51', off:42, sc:0.1},
+  {k:'height_i',   l:'Height I °',    c:'#2a9d8f', off:44, sc:0.1},
+  {k:'height_d',   l:'Height D °',    c:'#264653', off:46, sc:0.1},
+  {k:'height_out', l:'Height out °',  c:'#b56576', off:48, sc:0.1},
+  {k:'pitch_err',  l:'Pitch err °',   c:'#ffb703', off:50, sc:0.1},
+  {k:'pitch_p',    l:'Pitch P °',     c:'#fb8500', off:52, sc:0.1},
+  {k:'pitch_i',    l:'Pitch I °',     c:'#219ebc', off:54, sc:0.1},
+  {k:'pitch_d',    l:'Pitch D °',     c:'#023047', off:56, sc:0.1},
+  {k:'pitch_out',  l:'Pitch out °',   c:'#8ecae6', off:58, sc:0.1},
+  {k:'roll_err',   l:'Roll err °',    c:'#c77dff', off:60, sc:0.1},
+  {k:'roll_p',     l:'Roll P °',      c:'#9d4edd', off:62, sc:0.1},
+  {k:'roll_i',     l:'Roll I °',      c:'#7b2cbf', off:64, sc:0.1},
+  {k:'roll_d',     l:'Roll D °',      c:'#5a189a', off:66, sc:0.1},
+  {k:'roll_out',   l:'Roll out °',    c:'#e0aaff', off:68, sc:0.1},
 ];
 const DEFAULT_ON = ['pitch','roll','pitch_t'];
 
@@ -377,7 +392,7 @@ function parseSessions(buf){
     const cfgSize = dv.getUint16(o+16, true) || CFG_EVENT_SIZE;
     const cfgN = dv.getUint32(o+18, true);
     o += HEADER_SIZE;
-    if (version !== 2 || cfgSize !== CFG_EVENT_SIZE) break;
+    if (version !== 3 || recSize !== REC_SIZE || cfgSize !== CFG_EVENT_SIZE) break;
     if (o + n*recSize > buf.byteLength) break;
     const s = {id, n, t:new Float64Array(n), cols:{},
                lat:new Float32Array(n), lon:new Float32Array(n), gps:new Uint8Array(n), cfgEvents:[]};
