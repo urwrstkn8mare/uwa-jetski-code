@@ -384,7 +384,7 @@ let visible = new Set(DEFAULT_ON);
 let graphMode = 'all';
 let selIndex = -1;
 let sessionsMeta = [], currentSessionId = 0, localFile = null;
-let map = null, trackLine = null, headingLayer = null, selMarker = null;
+let map = null, trackLine = null, selMarker = null;
 let selectedConfigEvent = null;
 const CH_BY_KEY = {};
 CH.forEach(ch => { CH_BY_KEY[ch.k] = ch; });
@@ -782,42 +782,14 @@ function ensureMap(){
 function updateTrack(){
   ensureMap(); if(!map) return;
   if(trackLine){ trackLine.remove(); trackLine=null; }
-  if(headingLayer){ headingLayer.remove(); headingLayer=null; }
   if(selMarker){ selMarker.remove(); selMarker=null; }
   const gpsIdx=displayGpsIndexes();
   const pts=gpsIdx.map(i=>[dataSession.lat[i],dataSession.lon[i]]);
   if(pts.length){
     trackLine=L.polyline(pts,{color:'#4ecca3',weight:3}).addTo(map);
-    headingLayer=createHeadingLayer(gpsIdx).addTo(map);
     map.fitBounds(trackLine.getBounds(),{padding:[20,20]});
   }
   setTimeout(()=>map.invalidateSize(),50);
-}
-
-function headingEnd(lat, lon, headingDeg, lengthM){
-  const R=6371000;
-  const lat1=lat*Math.PI/180, lon1=lon*Math.PI/180, brng=headingDeg*Math.PI/180;
-  const lat2=Math.asin(Math.sin(lat1)*Math.cos(lengthM/R)+Math.cos(lat1)*Math.sin(lengthM/R)*Math.cos(brng));
-  const lon2=lon1+Math.atan2(Math.sin(brng)*Math.sin(lengthM/R)*Math.cos(lat1), Math.cos(lengthM/R)-Math.sin(lat1)*Math.sin(lat2));
-  return [lat2*180/Math.PI, lon2*180/Math.PI];
-}
-
-function createHeadingLayer(gpsIndexes){
-  const layer=L.layerGroup();
-  if(!dataSession || !dataSession.n) return layer;
-  const step=Math.max(1, Math.ceil(gpsIndexes.length/28));
-  for(let j=0;j<gpsIndexes.length;j+=step){
-    const i=gpsIndexes[j], lat=dataSession.lat[i], lon=dataSession.lon[i];
-    const course=dataSession.cols.course[i];
-    if(Number.isFinite(course) && course !== 0){
-      L.polyline([[lat,lon], headingEnd(lat,lon,course,4)], {color:'#06d6a0',weight:2,opacity:.85}).addTo(layer);
-    }
-    const yaw=dataSession.cols.yaw[i];
-    if(Number.isFinite(yaw)){
-      L.polyline([[lat,lon], headingEnd(lat,lon,yaw,3)], {color:'#9b5de5',weight:2,opacity:.65,dashArray:'3,4'}).addTo(layer);
-    }
-  }
-  return layer;
 }
 
 function updateSelMarker(){

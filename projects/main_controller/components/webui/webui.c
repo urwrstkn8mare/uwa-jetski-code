@@ -169,9 +169,17 @@ static void sse_notify_servo_change(int idx) {
     sse_push_state();
 }
 
+static void sse_heartbeat_work(void *arg) {
+    (void)arg;
+    sse_send_comment("heartbeat");
+}
+
+/* Runs on the timer service task; defer the socket send to the httpd task. */
 static void heartbeat_timer_cb(TimerHandle_t t) {
     (void)t;
-    sse_send_comment("heartbeat");
+    if (s_server) {
+        httpd_queue_work(s_server, sse_heartbeat_work, NULL);
+    }
 }
 
 static esp_err_t api_get_state(httpd_req_t *req) {
@@ -841,6 +849,9 @@ static const httpd_uri_t s_uris[] = {
 
 static esp_err_t http_server_init(void) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    /* Default 4 KB overflows: session handlers stack ~2 KB of buffers on top
+     * of LittleFS traversal and float printf. */
+    cfg.stack_size = 8192;
     cfg.max_uri_handlers = 30;
     cfg.lru_purge_enable = true;
     cfg.server_port = CONFIG_WEBUI_HTTP_PORT;
