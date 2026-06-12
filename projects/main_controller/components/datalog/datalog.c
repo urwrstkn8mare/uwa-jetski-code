@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const char *TAG = "datalog";
 
@@ -269,6 +270,7 @@ static esp_err_t append_config_event_locked(uint32_t t_ms) {
     datalog_config_capture(&ev.cfg);
     if (fwrite(&ev, sizeof(ev), 1, s_cfg_file) != 1) return ESP_FAIL;
     fflush(s_cfg_file);
+    fsync(fileno(s_cfg_file));
     return ESP_OK;
 }
 
@@ -388,7 +390,10 @@ static void sampler_task(void *arg) {
             fwrite(&r, sizeof(r), 1, s_file);
             try_stamp_session();
             if (++s_writes_since_sync >= FLUSH_EVERY) {
+                /* fflush only drains stdio; littlefs commits the file's size and
+                 * blocks on fsync — without it a power cut reverts the file. */
                 fflush(s_file);
+                fsync(fileno(s_file));
                 evict_if_needed();
                 s_writes_since_sync = 0;
             }
@@ -559,7 +564,7 @@ int datalog_read_session(uint32_t id, size_t offset, void *buf, size_t len) {
     char path[64];
     session_path(id, path, sizeof(path));
     lock();
-    if (id == s_session_id && s_file != NULL) fflush(s_file);
+    if (id == s_session_id && s_file != NULL) { fflush(s_file); fsync(fileno(s_file)); }
     FILE *f = fopen(path, "rb");
     if (f == NULL) { unlock(); return -1; }
     int ret = -1;
@@ -576,7 +581,7 @@ int datalog_read_session_cfg(uint32_t id, size_t offset, void *buf, size_t len) 
     char path[64];
     session_cfg_path(id, path, sizeof(path));
     lock();
-    if (id == s_session_id && s_cfg_file != NULL) fflush(s_cfg_file);
+    if (id == s_session_id && s_cfg_file != NULL) { fflush(s_cfg_file); fsync(fileno(s_cfg_file)); }
     FILE *f = fopen(path, "rb");
     if (f == NULL) { unlock(); return -1; }
     int ret = -1;
