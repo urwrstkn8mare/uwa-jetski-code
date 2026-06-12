@@ -31,10 +31,28 @@ static void update_velocity(void) {
   status_ui_update("GPS vel", "%.2fkt %.0f°", (double)s_gps.speed, (double)s_gps.course);
 }
 
+/* Unix epoch from the RMC UTC date+time (days-from-civil, valid 2000+). */
+static uint32_t rmc_epoch_s(void) {
+  int y = 2000 + s_gps.year - (s_gps.month <= 2);
+  unsigned yoe = (unsigned)(y - 2000);
+  unsigned mp  = (unsigned)(s_gps.month + (s_gps.month > 2 ? -3 : 9));
+  unsigned doy = (153u * mp + 2u) / 5u + s_gps.date - 1u;
+  unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+  uint32_t days = doe + 11017u; /* days from 1970-01-01 to era start 2000-03-01 */
+  return days * 86400u + s_gps.hours * 3600u + s_gps.minutes * 60u + s_gps.seconds;
+}
+
+static void update_time(void) {
+  if (!s_gps.date_valid || s_gps.month == 0 || s_gps.date == 0) return;
+  can_gps_time_t t = { .epoch_s = rmc_epoch_s() };
+  (void)can_tx(CAN_ID_GPS_TIME, (const uint8_t *)&t, sizeof(t));
+}
+
 static void on_sentence(lwgps_statement_t res) {
   if (res == STAT_RMC && s_gps.is_valid) {
     update_position();
     update_velocity();
+    update_time();
   } else if (res == STAT_GGA && s_gps.fix > 0) {
     update_position();
     status_ui_update("GPS fix", "fx%u sat%u", (unsigned)s_gps.fix, (unsigned)s_gps.sats_in_use);

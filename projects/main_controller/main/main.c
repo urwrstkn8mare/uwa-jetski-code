@@ -10,6 +10,7 @@
 #include "servo_drive.h"
 #include "status_ui.h"
 #include "t_display_s3.h"
+#include "walltime.h"
 #include "webui.h"
 
 static const char *TAG = "main";
@@ -61,6 +62,10 @@ void app_main(void) {
   }
 
   (void)height_init();
+
+  if (walltime_init() != ESP_OK) {
+    ESP_LOGW(TAG, "walltime init failed — no GPS time");
+  }
 
   if (datalog_init() != ESP_OK) {
     ESP_LOGW(TAG, "datalog init failed — logging disabled");

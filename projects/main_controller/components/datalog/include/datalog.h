@@ -18,7 +18,7 @@
  */
 
 #define DATALOG_MAGIC     0x444B534Au /* "JSKD" */
-#define DATALOG_VERSION   3
+#define DATALOG_VERSION   4
 #define DATALOG_SAMPLE_HZ 10
 
 /* One logged sample. Fixed-point: *_x10 = value*10, speed_x100 = knots*100.
@@ -102,13 +102,16 @@ typedef struct __attribute__((packed)) {
     uint32_t record_count;
     uint16_t cfgevent_size;
     uint32_t cfgevent_count;
+    uint16_t sample_hz;
+    uint32_t start_epoch_s;    /* UTC session start, 0 = unknown */
 } datalog_header_t;
-_Static_assert(sizeof(datalog_header_t) == 22, "datalog_header_t must be 22 bytes");
+_Static_assert(sizeof(datalog_header_t) == 28, "datalog_header_t must be 28 bytes");
 
 typedef struct {
     uint32_t id;
     uint32_t record_count;
     uint32_t duration_ms;
+    uint32_t start_epoch_s;    /* UTC session start, 0 = unknown */
     bool     at_risk;          /* slated for eviction soon (low free space) */
 } datalog_session_info_t;
 
@@ -131,6 +134,11 @@ void      datalog_storage_info(size_t *total, size_t *used);
 
 uint32_t  datalog_session_record_count(uint32_t id);
 uint32_t  datalog_session_cfgevent_count(uint32_t id);
+
+/* UTC epoch of a session's start, 0 while unknown. Stamped lazily once the
+ * wall clock is learned (GPS or browser), so it appears retroactively for
+ * sessions recorded earlier in the same power-up. */
+uint32_t  datalog_session_start_epoch_s(uint32_t id);
 
 void      datalog_config_capture(datalog_config_t *out);
 void      datalog_config_apply(const datalog_config_t *in);

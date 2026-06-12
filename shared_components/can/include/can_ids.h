@@ -15,6 +15,7 @@
 #define CAN_ID_JOYSTICK      0x107u /* can_joystick_t */
 #define CAN_ID_RUDDER_ANGLE  0x108u /* can_rudder_angle_t */
 #define CAN_ID_CTRL_PERF     0x109u /* can_ctrl_perf_t */
+#define CAN_ID_GPS_TIME      0x10Au /* can_gps_time_t */
 
 /* Packed frame structs for compile-time safety.
  * Use these instead of manual memcpy for CAN serialization. */
@@ -48,6 +49,12 @@ typedef struct __attribute__((packed)) {
     float course_deg;
 } can_gps_velocity_t;
 _Static_assert(sizeof(can_gps_velocity_t) == 8, "CAN GPS velocity frame must be 8 bytes");
+
+/* UTC wall clock from the GPS fix (sent with each valid RMC sentence). */
+typedef struct __attribute__((packed)) {
+    uint32_t epoch_s; /* Unix time, seconds */
+} can_gps_time_t;
+_Static_assert(sizeof(can_gps_time_t) == 4, "CAN GPS time frame must be 4 bytes");
 
 typedef struct __attribute__((packed)) {
     uint8_t  height_target_cm;       /* 0..100 cm, integer */

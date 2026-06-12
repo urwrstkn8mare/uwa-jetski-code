@@ -13,6 +13,7 @@
 #include "height.h"
 #include "imu.h"
 #include "servo_drive.h"
+#include "walltime.h"
 
 #include <dirent.h>
 #include <inttypes.h>
@@ -39,6 +40,7 @@ static FILE     *s_cfg_file;             /* current config sidecar, open for app
 static uint32_t  s_session_id;
 static int64_t   s_session_start_ms;
 static uint32_t  s_writes_since_sync;
+static bool      s_session_stamped;      /* start epoch sidecar written */
 
 /* Latest GPS from the aux controller (CAN). Plain races are benign — the
  * sampler only ever reads a slightly-stale fix. */
@@ -61,6 +63,10 @@ static void session_path(uint32_t id, char *buf, size_t n) {
 
 static void session_cfg_path(uint32_t id, char *buf, size_t n) {
     snprintf(buf, n, MOUNT_POINT "/s%08" PRIu32 ".cfg", id);
+}
+
+static void session_tim_path(uint32_t id, char *buf, size_t n) {
+    snprintf(buf, n, MOUNT_POINT "/s%08" PRIu32 ".tim", id);
 }
 
 static bool parse_session_id(const char *name, uint32_t *id_out) {
@@ -117,6 +123,36 @@ static void remove_session_files(uint32_t id) {
     remove(path);
     session_cfg_path(id, path, sizeof(path));
     remove(path);
+    session_tim_path(id, path, sizeof(path));
+    remove(path);
+}
+
+/* Write the current session's UTC start epoch once the wall clock is known.
+ * Caller holds the lock. */
+static void try_stamp_session(void) {
+    if (s_session_stamped || s_file == NULL) return;
+    uint32_t epoch = walltime_epoch_at_uptime_ms(s_session_start_ms);
+    if (epoch == 0) return;
+    char path[64];
+    session_tim_path(s_session_id, path, sizeof(path));
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) return;
+    s_session_stamped = fwrite(&epoch, sizeof(epoch), 1, f) == 1;
+    fclose(f);
+    if (s_session_stamped) {
+        ESP_LOGI(TAG, "session %" PRIu32 " stamped epoch %" PRIu32, s_session_id, epoch);
+    }
+}
+
+static uint32_t read_session_epoch(uint32_t id) {
+    char path[64];
+    session_tim_path(id, path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    if (f == NULL) return 0;
+    uint32_t epoch = 0;
+    if (fread(&epoch, sizeof(epoch), 1, f) != 1) epoch = 0;
+    fclose(f);
+    return epoch;
 }
 
 static size_t free_bytes(void) {
@@ -259,11 +295,13 @@ static esp_err_t open_session(uint32_t id) {
     s_session_id = id;
     s_session_start_ms = esp_timer_get_time() / 1000;
     s_writes_since_sync = 0;
+    s_session_stamped = false;
     esp_err_t err = append_config_event_locked(0);
     if (err != ESP_OK) {
         close_session();
         return err;
     }
+    try_stamp_session();
     ESP_LOGI(TAG, "session %" PRIu32 " started", id);
     return ESP_OK;
 }
@@ -348,6 +386,7 @@ static void sampler_task(void *arg) {
         lock();
         if (s_file != NULL) {
             fwrite(&r, sizeof(r), 1, s_file);
+            try_stamp_session();
             if (++s_writes_since_sync >= FLUSH_EVERY) {
                 fflush(s_file);
                 evict_if_needed();
@@ -450,6 +489,7 @@ int datalog_list_sessions(datalog_session_info_t *out, int max) {
         out[w].id = id;
         out[w].record_count = count;
         out[w].duration_ms = count > 0 ? (count - 1) * (1000u / DATALOG_SAMPLE_HZ) : 0;
+        out[w].start_epoch_s = read_session_epoch(id);
         out[w].at_risk = low && (id == victim);
         w++;
     }
@@ -467,6 +507,8 @@ esp_err_t datalog_delete_session(uint32_t id) {
         session_path(id, path, sizeof(path));
         err = (remove(path) == 0) ? ESP_OK : ESP_FAIL;
         session_cfg_path(id, path, sizeof(path));
+        remove(path);
+        session_tim_path(id, path, sizeof(path));
         remove(path);
     }
     unlock();
@@ -504,6 +546,13 @@ uint32_t datalog_session_cfgevent_count(uint32_t id) {
     uint32_t c = (uint32_t)(cfg_file_size(id) / sizeof(datalog_cfgevent_t));
     unlock();
     return c;
+}
+
+uint32_t datalog_session_start_epoch_s(uint32_t id) {
+    lock();
+    uint32_t epoch = read_session_epoch(id);
+    unlock();
+    return epoch;
 }
 
 int datalog_read_session(uint32_t id, size_t offset, void *buf, size_t len) {

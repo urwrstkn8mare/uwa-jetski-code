@@ -4,6 +4,7 @@
 #include "datalog.h"
 #include "encoder_can.h"
 #include "imu.h"
+#include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_event.h"
@@ -17,6 +18,7 @@
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
 #include "servo_drive.h"
+#include "walltime.h"
 
 #include <inttypes.h>
 #include <math.h>
@@ -579,6 +581,44 @@ static esp_err_t api_post_config_restore(httpd_req_t *req) {
     return json_ok_resp(req);
 }
 
+/* ── Wall clock ── */
+
+static const char *time_source_name(walltime_source_t src) {
+    switch (src) {
+    case WALLTIME_SOURCE_GPS:     return "gps";
+    case WALLTIME_SOURCE_BROWSER: return "browser";
+    default:                      return "none";
+    }
+}
+
+static esp_err_t api_get_time(httpd_req_t *req) {
+    uint32_t epoch_s = 0;
+    walltime_source_t src = WALLTIME_SOURCE_NONE;
+    walltime_get(&epoch_s, &src);
+    char buf[96];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"epoch_s\":%" PRIu32 ",\"source\":\"%s\"}",
+        epoch_s, time_source_name(src));
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
+}
+
+static esp_err_t api_post_time(httpd_req_t *req) {
+    size_t buf_sz = req->content_len;
+    if (buf_sz > 64) return json_error_resp(req, "payload too large");
+
+    char buf[65];
+    int ret = httpd_req_recv(req, buf, buf_sz);
+    if (ret <= 0) return json_error_resp(req, "recv failed");
+    buf[ret] = 0;
+
+    long epoch_s = parse_number(buf, "\"epoch_s\"");
+    if (epoch_s <= 0) return json_error_resp(req, "invalid epoch_s");
+
+    walltime_set((uint32_t)epoch_s, WALLTIME_SOURCE_BROWSER);
+    return json_ok_resp(req);
+}
+
 /* ── Data logging ── */
 
 static bool query_u32(httpd_req_t *req, const char *key, uint32_t *out) {
@@ -595,20 +635,24 @@ static esp_err_t api_get_sessions(httpd_req_t *req) {
     size_t total = 0, used = 0;
     datalog_storage_info(&total, &used);
 
-    char buf[1024];
-    int off = snprintf(buf, sizeof(buf),
-        "{\"current\":%" PRIu32 ",\"total\":%u,\"used\":%u,\"sessions\":[",
-        datalog_current_session(), (unsigned)total, (unsigned)used);
-    for (int i = 0; i < n && off < (int)sizeof(buf) - 96; i++) {
-        off += snprintf(buf + off, sizeof(buf) - off,
+    const size_t buf_sz = 4096;
+    char *buf = malloc(buf_sz);
+    if (!buf) return json_error_resp(req, "no mem");
+    int off = snprintf(buf, buf_sz,
+        "{\"current\":%" PRIu32 ",\"hz\":%d,\"total\":%u,\"used\":%u,\"sessions\":[",
+        datalog_current_session(), DATALOG_SAMPLE_HZ, (unsigned)total, (unsigned)used);
+    for (int i = 0; i < n && off < (int)buf_sz - 160; i++) {
+        off += snprintf(buf + off, buf_sz - off,
             "%s{\"id\":%" PRIu32 ",\"records\":%" PRIu32 ",\"duration_ms\":%" PRIu32
-            ",\"at_risk\":%s}",
+            ",\"start_epoch_s\":%" PRIu32 ",\"at_risk\":%s}",
             i ? "," : "", s[i].id, s[i].record_count, s[i].duration_ms,
-            s[i].at_risk ? "true" : "false");
+            s[i].start_epoch_s, s[i].at_risk ? "true" : "false");
     }
-    off += snprintf(buf + off, sizeof(buf) - off, "]}");
+    off += snprintf(buf + off, buf_sz - off, "]}");
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, buf, (size_t)off);
+    esp_err_t err = httpd_resp_send(req, buf, (size_t)off);
+    free(buf);
+    return err;
 }
 
 static esp_err_t api_post_session_new(httpd_req_t *req) {
@@ -641,6 +685,8 @@ static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, si
         .record_count = count,
         .cfgevent_size = sizeof(datalog_cfgevent_t),
         .cfgevent_count = cfg_count,
+        .sample_hz = DATALOG_SAMPLE_HZ,
+        .start_epoch_s = datalog_session_start_epoch_s(id),
     };
     if (httpd_resp_send_chunk(req, (const char *)&hdr, sizeof(hdr)) != ESP_OK) return ESP_FAIL;
 
@@ -701,50 +747,52 @@ static esp_err_t api_get_download(httpd_req_t *req) {
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
+/* Static assets carry an ETag from the firmware build, so browsers revalidate
+ * on each load: unchanged files cost a 304, and every reflash invalidates. */
+static esp_err_t send_asset(httpd_req_t *req, const char *type, bool gzip,
+                            const uint8_t *start, const uint8_t *end) {
+    const esp_app_desc_t *app = esp_app_get_description();
+    char etag[16];
+    snprintf(etag, sizeof(etag), "\"%02x%02x%02x%02x\"",
+             app->app_elf_sha256[0], app->app_elf_sha256[1],
+             app->app_elf_sha256[2], app->app_elf_sha256[3]);
+    httpd_resp_set_hdr(req, "ETag", etag);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+
+    char inm[16];
+    if (httpd_req_get_hdr_value_str(req, "If-None-Match", inm, sizeof(inm)) == ESP_OK &&
+        strcmp(inm, etag) == 0) {
+        httpd_resp_set_status(req, "304 Not Modified");
+        return httpd_resp_send(req, NULL, 0);
+    }
+
+    httpd_resp_set_type(req, type);
+    if (gzip) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    return httpd_resp_send(req, (const char *)start, (size_t)(end - start));
+}
+
 static esp_err_t index_handler(httpd_req_t *req) {
-    size_t len = (size_t)(index_html_end - index_html_start);
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, (const char *)index_html_start, len);
+    return send_asset(req, "text/html", false, index_html_start, index_html_end);
 }
 
 static esp_err_t app_css_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
-    return httpd_resp_send(req, (const char *)app_css_start,
-                           (size_t)(app_css_end - app_css_start));
+    return send_asset(req, "text/css", true, app_css_start, app_css_end);
 }
 
 static esp_err_t app_js_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
-    return httpd_resp_send(req, (const char *)app_js_start,
-                           (size_t)(app_js_end - app_js_start));
+    return send_asset(req, "application/javascript", true, app_js_start, app_js_end);
 }
 
 static esp_err_t live_js_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
-    return httpd_resp_send(req, (const char *)live_js_start,
-                           (size_t)(live_js_end - live_js_start));
+    return send_asset(req, "application/javascript", true, live_js_start, live_js_end);
 }
 
 static esp_err_t leaflet_js_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "application/javascript");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
-    return httpd_resp_send(req, (const char *)leaflet_js_start,
-                           (size_t)(leaflet_js_end - leaflet_js_start));
+    return send_asset(req, "application/javascript", true, leaflet_js_start, leaflet_js_end);
 }
 
 static esp_err_t leaflet_css_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "max-age=31536000");
-    return httpd_resp_send(req, (const char *)leaflet_css_start,
-                           (size_t)(leaflet_css_end - leaflet_css_start));
+    return send_asset(req, "text/css", true, leaflet_css_start, leaflet_css_end);
 }
 
 static esp_err_t sse_handler(httpd_req_t *req) {
@@ -839,6 +887,8 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/imu/defaults", .method = HTTP_GET, .handler = api_get_imu_defaults},
     {.uri = "/api/attitude", .method = HTTP_GET,  .handler = api_get_attitude},
     {.uri = "/api/rudder/zero", .method = HTTP_POST, .handler = api_post_rudder_zero},
+    {.uri = "/api/time",     .method = HTTP_GET,  .handler = api_get_time},
+    {.uri = "/api/time",     .method = HTTP_POST, .handler = api_post_time},
     {.uri = "/api/sessions",        .method = HTTP_GET,  .handler = api_get_sessions},
     {.uri = "/api/session/new",     .method = HTTP_POST, .handler = api_post_session_new},
     {.uri = "/api/session/delete",  .method = HTTP_POST, .handler = api_post_session_delete},

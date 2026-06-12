@@ -127,6 +127,20 @@
 </div>
 <span id="rudderZeroMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
 </div>
+<div class="card">
+<div class="cfg-section">
+<h4>Time</h4>
+<div class="hint" style="margin-bottom:8px">Used to date-stamp log sessions. Set automatically from GPS when the aux controller has a fix; sync from this browser if there is no GPS.</div>
+<div class="telemetry-row">
+<div class="telemetry-item"><div class="label">Device time</div><div class="val t-blue" id="timeNow">--</div></div>
+<div class="telemetry-item"><div class="label">Source</div><div class="val t-blue" id="timeSource">--</div></div>
+</div>
+</div>
+<div class="btn-group">
+<button class="btn btn-save" id="btnSyncTime">Sync from Browser</button>
+</div>
+<span id="timeSyncMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
+</div>
 </div>
 
 <div id="panel-servos" class="panel">

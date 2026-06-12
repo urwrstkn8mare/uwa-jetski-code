@@ -46,8 +46,8 @@ document.querySelectorAll('.tabs button').forEach(btn => {
         if (btn.dataset.tab === 'servos') loadServos();
         if (btn.dataset.tab === 'config') loadConfig();
         if (btn.dataset.tab === 'data') openDataTab();
-        if (btn.dataset.tab === 'offsets') { loadOffsets(); startAttitudePoll(); }
-        else { stopAttitudePoll(); }
+        if (btn.dataset.tab === 'offsets') { loadOffsets(); startAttitudePoll(); startTimePoll(); }
+        else { stopAttitudePoll(); stopTimePoll(); }
     });
 });
 
@@ -158,6 +158,36 @@ $('btnResetOffsets').addEventListener('click', () => {
     }).catch(() => {
         $('offsetsSaveMsg').textContent = 'Error';
         setTimeout(() => $('offsetsSaveMsg').textContent = '', 2000);
+    });
+});
+
+let timePoll = null;
+function startTimePoll() {
+    if (timePoll) return;
+    const tick = () => {
+        fetch(API + '/api/time').then(r => r.json()).then(d => {
+            $('timeNow').textContent = d.epoch_s ? new Date(d.epoch_s * 1000).toLocaleString() : '--';
+            $('timeSource').textContent = d.source === 'none' ? 'not set' : d.source.toUpperCase();
+        }).catch(() => {});
+    };
+    tick();
+    timePoll = setInterval(tick, 1000);
+}
+function stopTimePoll() {
+    if (timePoll) { clearInterval(timePoll); timePoll = null; }
+}
+
+$('btnSyncTime').addEventListener('click', () => {
+    fetch(API + '/api/time', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({epoch_s: Math.floor(Date.now() / 1000)})
+    }).then(r => {
+        $('timeSyncMsg').textContent = r.ok ? 'Synced!' : 'Error';
+        setTimeout(() => $('timeSyncMsg').textContent = '', 2000);
+    }).catch(() => {
+        $('timeSyncMsg').textContent = 'Error';
+        setTimeout(() => $('timeSyncMsg').textContent = '', 2000);
     });
 });
 
@@ -304,8 +334,9 @@ function sendRawPw(handle, pulse_us) {
 
 /* ── Data tab: sessions, binary parsing, graphs, track map ── */
 const DATALOG_MAGIC = 0x444B534A; // "JSKD" LE
+const DATALOG_VERSION = 4;
 const REC_SIZE = 70;
-const HEADER_SIZE = 22;
+const HEADER_SIZE = 28;
 const CFG_SIZE = 91;
 const CFG_EVENT_SIZE = 95;
 
@@ -429,10 +460,12 @@ function parseSessions(buf){
     const n  = dv.getUint32(o+12, true);
     const cfgSize = dv.getUint16(o+16, true) || CFG_EVENT_SIZE;
     const cfgN = dv.getUint32(o+18, true);
+    const hz = dv.getUint16(o+22, true) || 10;
+    const startEpoch = dv.getUint32(o+24, true);
     o += HEADER_SIZE;
-    if (version !== 3 || recSize !== REC_SIZE || cfgSize !== CFG_EVENT_SIZE) break;
+    if (version !== DATALOG_VERSION || recSize !== REC_SIZE || cfgSize !== CFG_EVENT_SIZE) break;
     if (o + n*recSize > buf.byteLength) break;
-    const s = {id, n, t:new Float64Array(n), cols:{},
+    const s = {id, n, hz, startEpoch, t:new Float64Array(n), cols:{},
                lat:new Float32Array(n), lon:new Float32Array(n), gps:new Uint8Array(n), cfgEvents:[]};
     CH.forEach(ch => s.cols[ch.k] = new Float32Array(n));
     for (let i=0;i<n;i++){
@@ -457,6 +490,9 @@ function parseSessions(buf){
 }
 
 function fmtDur(ms){ const s=Math.round(ms/1000); return s<60 ? s+'s' : Math.floor(s/60)+'m'+(s%60)+'s'; }
+function fmtStart(epoch_s){
+  return epoch_s ? new Date(epoch_s*1000).toLocaleString([], {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '';
+}
 
 function openDataTab(){
   loadSessions();
@@ -499,7 +535,8 @@ function renderSessionList(){
     localFile.sessions.forEach(s=>{
       const row=document.createElement('div');
       row.className='sess-row'+(dataSession===s?' active':'');
-      row.innerHTML=`<span class="sess-name">Session ${s.id}</span><span class="sess-meta">${s.n} pts</span>`;
+      const start=fmtStart(s.startEpoch);
+      row.innerHTML=`<span class="sess-name">Session ${s.id}</span><span class="sess-meta">${start?start+' · ':''}${s.n} pts</span>`;
       row.addEventListener('click',()=>selectSession(s));
       list.appendChild(row);
     });
@@ -512,9 +549,10 @@ function renderSessionList(){
     const row=document.createElement('div');
     row.className='sess-row'+(dataSession && !dataSession.local && dataSession.id===s.id ? ' active':'');
     const live=s.id===currentSessionId ? ' · REC':'';
+    const start=fmtStart(s.start_epoch_s);
     row.innerHTML=`<span class="sess-name">Session ${s.id}</span>`+
       (s.at_risk?'<span class="warn" title="auto-deleted next when space runs low">⚠</span>':'')+
-      `<span class="sess-meta">${s.records} pts · ${fmtDur(s.duration_ms)}${live}</span>`;
+      `<span class="sess-meta">${start?start+' · ':''}${s.records} pts · ${fmtDur(s.duration_ms)}${live}</span>`;
     row.addEventListener('click',()=>loadSessionData(s.id));
     const del=document.createElement('button');
     del.className='del'; del.textContent='✕'; del.title='Delete';
@@ -541,7 +579,8 @@ function loadSessionData(id){
 function selectSession(s){
   dataSession = s;
   selIndex = -1;
-  $('chartTitle').textContent = 'Graphs — Session '+s.id+' ('+s.n+' pts)';
+  const start=fmtStart(s.startEpoch);
+  $('chartTitle').textContent = 'Graphs — Session '+s.id+' ('+s.n+' pts · '+s.hz+' Hz'+(start?' · started '+start:'')+')';
   renderSessionList();
   buildModeControls();
   buildLegend();
@@ -697,6 +736,14 @@ function drawChartPanel(ctx, w, y0, h, keys, title){
     ctx.fillStyle='#7a89a8'; ctx.fillText(val.toFixed(1).padStart(6), 2, yy+3);
   }
   if(mn<0&&mx>0){ ctx.strokeStyle='#44557a'; ctx.beginPath(); ctx.moveTo(padL,Y(0)); ctx.lineTo(w-padR,Y(0)); ctx.stroke(); }
+  ctx.fillStyle='#7a89a8';
+  for(let g=0;g<=4;g++){
+    const ts=tmax*g/4;
+    const lbl='T+'+(ts>=60 ? Math.floor(ts/60)+':'+String(Math.round(ts%60)).padStart(2,'0') : Math.round(ts)+'s');
+    ctx.textAlign = g===0 ? 'left' : (g===4 ? 'right' : 'center');
+    ctx.fillText(lbl, padL+plotW*g/4, padT+plotH+12);
+  }
+  ctx.textAlign='left';
   drawConfigLines(ctx, padL, padT, plotW, plotH, tmax);
   ctx.lineWidth=1.5;
   vis.forEach(ch=>{
