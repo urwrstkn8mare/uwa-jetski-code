@@ -639,8 +639,8 @@ static esp_err_t api_get_sessions(httpd_req_t *req) {
     char *buf = malloc(buf_sz);
     if (!buf) return json_error_resp(req, "no mem");
     int off = snprintf(buf, buf_sz,
-        "{\"current\":%" PRIu32 ",\"hz\":%d,\"total\":%u,\"used\":%u,\"sessions\":[",
-        datalog_current_session(), DATALOG_SAMPLE_HZ, (unsigned)total, (unsigned)used);
+        "{\"current\":%" PRIu32 ",\"hz\":%u,\"total\":%u,\"used\":%u,\"sessions\":[",
+        datalog_current_session(), datalog_sample_hz(), (unsigned)total, (unsigned)used);
     for (int i = 0; i < n && off < (int)buf_sz - 160; i++) {
         off += snprintf(buf + off, buf_sz - off,
             "%s{\"id\":%" PRIu32 ",\"records\":%" PRIu32 ",\"duration_ms\":%" PRIu32
@@ -656,6 +656,11 @@ static esp_err_t api_get_sessions(httpd_req_t *req) {
 }
 
 static esp_err_t api_post_session_new(httpd_req_t *req) {
+    uint32_t hz;
+    if (query_u32(req, "hz", &hz) &&
+        datalog_set_sample_hz((uint16_t)hz) != ESP_OK) {
+        return json_error_resp(req, "bad hz");
+    }
     return (datalog_new_session() == ESP_OK) ? json_ok_resp(req)
                                              : json_error_resp(req, "new session failed");
 }
@@ -677,6 +682,9 @@ static esp_err_t api_post_session_clear(httpd_req_t *req) {
 static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, size_t buf_sz) {
     uint32_t count = datalog_session_record_count(id);
     uint32_t cfg_count = datalog_session_cfgevent_count(id);
+    uint16_t hz;
+    uint32_t epoch;
+    datalog_session_meta(id, &hz, &epoch);
     datalog_header_t hdr = {
         .magic = DATALOG_MAGIC,
         .version = DATALOG_VERSION,
@@ -685,8 +693,8 @@ static esp_err_t send_session_block(httpd_req_t *req, uint32_t id, char *buf, si
         .record_count = count,
         .cfgevent_size = sizeof(datalog_cfgevent_t),
         .cfgevent_count = cfg_count,
-        .sample_hz = DATALOG_SAMPLE_HZ,
-        .start_epoch_s = datalog_session_start_epoch_s(id),
+        .sample_hz = hz,
+        .start_epoch_s = epoch,
     };
     if (httpd_resp_send_chunk(req, (const char *)&hdr, sizeof(hdr)) != ESP_OK) return ESP_FAIL;
 

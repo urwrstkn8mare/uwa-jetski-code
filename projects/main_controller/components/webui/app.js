@@ -517,6 +517,7 @@ function loadSessions(){
   fetch(API+'/api/sessions').then(r=>r.json()).then(d=>{
     sessionsMeta = d.sessions || [];
     currentSessionId = d.current;
+    if (d.hz) $('selHz').value = String(d.hz);
     const pct = d.total ? Math.round(d.used/d.total*100) : 0;
     $('storageFill').style.width = pct+'%';
     $('storageText').textContent = (d.used/1048576).toFixed(1)+' / '+(d.total/1048576).toFixed(1)+' MB used ('+pct+'%)';
@@ -880,7 +881,7 @@ function cachedTileLayer(url){
   return new Cached(url,{maxZoom:19});
 }
 
-$('btnNewSession').addEventListener('click',()=>{ fetch(API+'/api/session/new',{method:'POST'}).then(()=>loadSessions()).catch(()=>{}); });
+$('btnNewSession').addEventListener('click',()=>{ fetch(API+'/api/session/new?hz='+$('selHz').value,{method:'POST'}).then(()=>loadSessions()).catch(()=>{}); });
 $('btnClearSessions').addEventListener('click',()=>{ if(!confirm('Delete ALL saved sessions except the active one?'))return; fetch(API+'/api/session/clear',{method:'POST'}).then(()=>loadSessions()).catch(()=>{}); });
 $('btnDownload').addEventListener('click',()=>{ window.location.href=API+'/api/download'; });
 $('btnOpenFile').addEventListener('click',()=>$('fileInput').click());

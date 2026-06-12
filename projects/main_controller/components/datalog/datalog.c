@@ -2,6 +2,7 @@
 
 #include "can.h"
 #include "can_ids.h"
+#include "config.h"
 #include "control.h"
 #include "encoder_can.h"
 #include "esp_littlefs.h"
@@ -28,12 +29,18 @@ static const char *TAG = "datalog";
 
 #define MOUNT_POINT  "/data"
 #define PART_LABEL   "datalog"
-#define FLUSH_EVERY  DATALOG_SAMPLE_HZ          /* fsync once per second */
 #define MAX_SESSIONS 128
+#define HZ_NVS_KEY   "dlog_hz"
 
 /* Free-space thresholds: evict the oldest session below EVICT, warn below WARN. */
 #define EVICT_FREE_BYTES (512u * 1024u)
 #define WARN_FREE_BYTES  (3u * 512u * 1024u)
+
+/* Per-session meta sidecar (s%08u.tim): sample rate + UTC start epoch. */
+typedef struct __attribute__((packed)) {
+    uint32_t start_epoch_s;              /* 0 = unknown */
+    uint16_t sample_hz;
+} session_meta_t;
 
 static SemaphoreHandle_t s_lock;
 static FILE     *s_file;                 /* current session, open for append */
@@ -41,7 +48,9 @@ static FILE     *s_cfg_file;             /* current config sidecar, open for app
 static uint32_t  s_session_id;
 static int64_t   s_session_start_ms;
 static uint32_t  s_writes_since_sync;
-static bool      s_session_stamped;      /* start epoch sidecar written */
+static bool      s_session_stamped;      /* meta sidecar carries a start epoch */
+static uint16_t  s_cfg_hz = DATALOG_DEFAULT_HZ;     /* rate for new sessions */
+static uint16_t  s_session_hz = DATALOG_DEFAULT_HZ; /* rate of the active session */
 
 /* Latest GPS from the aux controller (CAN). Plain races are benign — the
  * sampler only ever reads a slightly-stale fix. */
@@ -66,7 +75,7 @@ static void session_cfg_path(uint32_t id, char *buf, size_t n) {
     snprintf(buf, n, MOUNT_POINT "/s%08" PRIu32 ".cfg", id);
 }
 
-static void session_tim_path(uint32_t id, char *buf, size_t n) {
+static void session_meta_path(uint32_t id, char *buf, size_t n) {
     snprintf(buf, n, MOUNT_POINT "/s%08" PRIu32 ".tim", id);
 }
 
@@ -124,36 +133,49 @@ static void remove_session_files(uint32_t id) {
     remove(path);
     session_cfg_path(id, path, sizeof(path));
     remove(path);
-    session_tim_path(id, path, sizeof(path));
+    session_meta_path(id, path, sizeof(path));
     remove(path);
 }
 
-/* Write the current session's UTC start epoch once the wall clock is known.
+/* Write the current session's meta sidecar. Written at open with the sample
+ * rate, and re-written with the UTC start epoch once the wall clock is known.
  * Caller holds the lock. */
-static void try_stamp_session(void) {
-    if (s_session_stamped || s_file == NULL) return;
-    uint32_t epoch = walltime_epoch_at_uptime_ms(s_session_start_ms);
-    if (epoch == 0) return;
+static void write_session_meta(void) {
+    session_meta_t m = {
+        .start_epoch_s = walltime_epoch_at_uptime_ms(s_session_start_ms),
+        .sample_hz = s_session_hz,
+    };
     char path[64];
-    session_tim_path(s_session_id, path, sizeof(path));
+    session_meta_path(s_session_id, path, sizeof(path));
     FILE *f = fopen(path, "wb");
     if (f == NULL) return;
-    s_session_stamped = fwrite(&epoch, sizeof(epoch), 1, f) == 1;
+    bool ok = fwrite(&m, sizeof(m), 1, f) == 1;
     fclose(f);
+    s_session_stamped = ok && m.start_epoch_s != 0;
     if (s_session_stamped) {
-        ESP_LOGI(TAG, "session %" PRIu32 " stamped epoch %" PRIu32, s_session_id, epoch);
+        ESP_LOGI(TAG, "session %" PRIu32 " stamped epoch %" PRIu32,
+                 s_session_id, m.start_epoch_s);
     }
 }
 
-static uint32_t read_session_epoch(uint32_t id) {
+static void try_stamp_session(void) {
+    if (s_session_stamped || s_file == NULL) return;
+    if (walltime_epoch_at_uptime_ms(s_session_start_ms) == 0) return;
+    write_session_meta();
+}
+
+static session_meta_t read_session_meta(uint32_t id) {
+    session_meta_t m = { .start_epoch_s = 0, .sample_hz = DATALOG_DEFAULT_HZ };
     char path[64];
-    session_tim_path(id, path, sizeof(path));
+    session_meta_path(id, path, sizeof(path));
     FILE *f = fopen(path, "rb");
-    if (f == NULL) return 0;
-    uint32_t epoch = 0;
-    if (fread(&epoch, sizeof(epoch), 1, f) != 1) epoch = 0;
+    if (f == NULL) return m;
+    if (fread(&m, sizeof(m), 1, f) != 1 || m.sample_hz == 0) {
+        m.start_epoch_s = 0;
+        m.sample_hz = DATALOG_DEFAULT_HZ;
+    }
     fclose(f);
-    return epoch;
+    return m;
 }
 
 static size_t free_bytes(void) {
@@ -298,13 +320,14 @@ static esp_err_t open_session(uint32_t id) {
     s_session_start_ms = esp_timer_get_time() / 1000;
     s_writes_since_sync = 0;
     s_session_stamped = false;
+    s_session_hz = s_cfg_hz;
     esp_err_t err = append_config_event_locked(0);
     if (err != ESP_OK) {
         close_session();
         return err;
     }
-    try_stamp_session();
-    ESP_LOGI(TAG, "session %" PRIu32 " started", id);
+    write_session_meta();
+    ESP_LOGI(TAG, "session %" PRIu32 " started at %u Hz", id, s_session_hz);
     return ESP_OK;
 }
 
@@ -377,10 +400,9 @@ static void build_record(datalog_record_t *r) {
 
 static void sampler_task(void *arg) {
     (void)arg;
-    const TickType_t period = pdMS_TO_TICKS(1000 / DATALOG_SAMPLE_HZ);
     TickType_t last = xTaskGetTickCount();
     for (;;) {
-        vTaskDelayUntil(&last, period);
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(1000 / s_session_hz));
 
         datalog_record_t r;
         build_record(&r);
@@ -389,7 +411,7 @@ static void sampler_task(void *arg) {
         if (s_file != NULL) {
             fwrite(&r, sizeof(r), 1, s_file);
             try_stamp_session();
-            if (++s_writes_since_sync >= FLUSH_EVERY) {
+            if (++s_writes_since_sync >= s_session_hz) {  /* fsync ~once per second */
                 /* fflush only drains stdio; littlefs commits the file's size and
                  * blocks on fsync — without it a power cut reverts the file. */
                 fflush(s_file);
@@ -437,6 +459,12 @@ esp_err_t datalog_init(void) {
 
     err = can_register_rx_cb(gps_rx_cb);
     if (err != ESP_OK) ESP_LOGW(TAG, "GPS RX register failed: %s", esp_err_to_name(err));
+
+    uint16_t hz;
+    if (config_get_blob(HZ_NVS_KEY, &hz, sizeof(hz)) == ESP_OK &&
+        hz >= DATALOG_MIN_HZ && hz <= DATALOG_MAX_HZ) {
+        s_cfg_hz = hz;
+    }
 
     lock();
     evict_if_needed();
@@ -491,10 +519,12 @@ int datalog_list_sessions(datalog_session_info_t *out, int max) {
     for (int i = n - 1; i >= 0 && w < max; i--) {   /* newest first */
         uint32_t id = ids[i];
         uint32_t count = (uint32_t)(file_size(id) / sizeof(datalog_record_t));
+        session_meta_t m = read_session_meta(id);
         out[w].id = id;
         out[w].record_count = count;
-        out[w].duration_ms = count > 0 ? (count - 1) * (1000u / DATALOG_SAMPLE_HZ) : 0;
-        out[w].start_epoch_s = read_session_epoch(id);
+        out[w].duration_ms = count > 0 ? (count - 1) * 1000u / m.sample_hz : 0;
+        out[w].start_epoch_s = m.start_epoch_s;
+        out[w].sample_hz = m.sample_hz;
         out[w].at_risk = low && (id == victim);
         w++;
     }
@@ -513,7 +543,7 @@ esp_err_t datalog_delete_session(uint32_t id) {
         err = (remove(path) == 0) ? ESP_OK : ESP_FAIL;
         session_cfg_path(id, path, sizeof(path));
         remove(path);
-        session_tim_path(id, path, sizeof(path));
+        session_meta_path(id, path, sizeof(path));
         remove(path);
     }
     unlock();
@@ -553,11 +583,25 @@ uint32_t datalog_session_cfgevent_count(uint32_t id) {
     return c;
 }
 
-uint32_t datalog_session_start_epoch_s(uint32_t id) {
+uint16_t datalog_sample_hz(void) {
+    return s_cfg_hz;
+}
+
+esp_err_t datalog_set_sample_hz(uint16_t hz) {
+    if (hz < DATALOG_MIN_HZ || hz > DATALOG_MAX_HZ) return ESP_ERR_INVALID_ARG;
+    if (hz == s_cfg_hz) return ESP_OK;
+    s_cfg_hz = hz;
+    esp_err_t err = config_set_blob(HZ_NVS_KEY, &hz, sizeof(hz));
+    if (err != ESP_OK) ESP_LOGW(TAG, "persist hz failed: %s", esp_err_to_name(err));
+    return ESP_OK;
+}
+
+void datalog_session_meta(uint32_t id, uint16_t *sample_hz, uint32_t *start_epoch_s) {
     lock();
-    uint32_t epoch = read_session_epoch(id);
+    session_meta_t m = read_session_meta(id);
     unlock();
-    return epoch;
+    if (sample_hz) *sample_hz = m.sample_hz;
+    if (start_epoch_s) *start_epoch_s = m.start_epoch_s;
 }
 
 int datalog_read_session(uint32_t id, size_t offset, void *buf, size_t len) {

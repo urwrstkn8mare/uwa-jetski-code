@@ -8,18 +8,21 @@
 /*
  * Persistent time-series logger for the main controller.
  *
- * A sampler task snapshots all flight channels at DATALOG_SAMPLE_HZ and appends
- * fixed-size records to the current session file on a LittleFS partition
- * ("datalog"). Each power-up / "new session" call starts a fresh session file.
- * When the partition runs low, the oldest sessions are evicted automatically.
+ * A sampler task snapshots all flight channels at a configurable rate and
+ * appends fixed-size records to the current session file on a LittleFS
+ * partition ("datalog"). Each power-up / "new session" call starts a fresh
+ * session file. When the partition runs low, the oldest sessions are evicted
+ * automatically.
  *
  * The on-wire record/header layout below is shared with the webui (the browser
  * parses the same bytes), so it is fixed-point and little-endian.
  */
 
-#define DATALOG_MAGIC     0x444B534Au /* "JSKD" */
-#define DATALOG_VERSION   4
-#define DATALOG_SAMPLE_HZ 10
+#define DATALOG_MAGIC      0x444B534Au /* "JSKD" */
+#define DATALOG_VERSION    4
+#define DATALOG_DEFAULT_HZ 10
+#define DATALOG_MIN_HZ     1
+#define DATALOG_MAX_HZ     100
 
 /* One logged sample. Fixed-point: *_x10 = value*10, speed_x100 = knots*100.
  * lat/lon are float degrees, 0 when there is no GPS fix (see flags). */
@@ -112,6 +115,7 @@ typedef struct {
     uint32_t record_count;
     uint32_t duration_ms;
     uint32_t start_epoch_s;    /* UTC session start, 0 = unknown */
+    uint16_t sample_hz;
     bool     at_risk;          /* slated for eviction soon (low free space) */
 } datalog_session_info_t;
 
@@ -135,10 +139,15 @@ void      datalog_storage_info(size_t *total, size_t *used);
 uint32_t  datalog_session_record_count(uint32_t id);
 uint32_t  datalog_session_cfgevent_count(uint32_t id);
 
-/* UTC epoch of a session's start, 0 while unknown. Stamped lazily once the
- * wall clock is learned (GPS or browser), so it appears retroactively for
- * sessions recorded earlier in the same power-up. */
-uint32_t  datalog_session_start_epoch_s(uint32_t id);
+/* Sample rate for new sessions, persisted across reboots. A change takes
+ * effect from the next session; the active session keeps its rate. */
+uint16_t  datalog_sample_hz(void);
+esp_err_t datalog_set_sample_hz(uint16_t hz);
+
+/* A session's sample rate and UTC start epoch (0 while unknown). The epoch is
+ * stamped lazily once the wall clock is learned (GPS or browser), so it
+ * appears retroactively for sessions recorded earlier in the same power-up. */
+void      datalog_session_meta(uint32_t id, uint16_t *sample_hz, uint32_t *start_epoch_s);
 
 void      datalog_config_capture(datalog_config_t *out);
 void      datalog_config_apply(const datalog_config_t *in);
