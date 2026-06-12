@@ -126,6 +126,15 @@
 <button class="btn btn-save" id="btnZeroRudder">Zero Rudder</button>
 </div>
 <span id="rudderZeroMsg" style="font-size:13px;color:#4ecca3;margin-left:8px;display:inline-block;min-width:60px"></span>
+<details id="canMonitor" style="margin-top:10px">
+<summary style="cursor:pointer;font-size:13px">CAN bus monitor</summary>
+<div class="hint" style="margin:6px 0">Every CAN ID heard since boot, with the latest payload. Refreshes twice a second while open. 0x181 = encoder position broadcast; command replies would appear on 0x001 (CAN2.0B) or 0x581 (CANopen).</div>
+<div id="canTxStats" style="font-size:12px;margin-bottom:4px"></div>
+<table style="font-family:monospace;font-size:12px;border-collapse:collapse" id="canStatsTable">
+<thead><tr><th style="text-align:left;padding:2px 10px 2px 0">ID</th><th style="text-align:right;padding:2px 10px 2px 0">count</th><th style="text-align:right;padding:2px 10px 2px 0">len</th><th style="text-align:left;padding:2px 10px 2px 0">last data</th><th style="text-align:right">age ms</th></tr></thead>
+<tbody></tbody>
+</table>
+</details>
 </div>
 <div class="card">
 <div class="cfg-section">

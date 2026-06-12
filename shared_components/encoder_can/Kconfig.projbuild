@@ -19,11 +19,12 @@ menu "UWA Jetski - Briterencoder CAN"
 
     config ENCODER_AUTO_PERIOD_MS
         int "Encoder auto-return period (ms)"
-        default 20
-        range 1 1000
+        default 50
+        range 50 1000
         help
             How often the encoder sends position frames in auto-return mode.
-            20 ms = 50 Hz, matching the 50 Hz control loop.
+            The Briterencoder manual lists 50 ms as the minimum. Shorter
+            periods can make later parameter writes, such as zeroing, fail.
 
     config ENCODER_MAX_ANGLE_DEG
         int "Rudder maximum deflection angle (degrees)"

@@ -48,6 +48,37 @@ static QueueHandle_t s_rx_queue = NULL;
 static TaskHandle_t s_rx_task_hdl = NULL;
 static TaskHandle_t s_diag_task_hdl = NULL;
 
+/* ---------- Bus diagnostics ---------- */
+#define CAN_RX_STATS_MAX 24
+static can_rx_stat_t s_rx_stats[CAN_RX_STATS_MAX];
+static size_t s_rx_stats_count = 0;
+static portMUX_TYPE s_stats_lock = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint32_t s_tx_ok_count;
+static volatile uint32_t s_tx_fail_count;
+
+static void rx_stats_record(const can_rx_msg_t *msg) {
+  taskENTER_CRITICAL(&s_stats_lock);
+  can_rx_stat_t *slot = NULL;
+  for (size_t i = 0; i < s_rx_stats_count; i++) {
+    if (s_rx_stats[i].id == msg->id) {
+      slot = &s_rx_stats[i];
+      break;
+    }
+  }
+  if (slot == NULL && s_rx_stats_count < CAN_RX_STATS_MAX) {
+    slot = &s_rx_stats[s_rx_stats_count++];
+    slot->id = msg->id;
+    slot->count = 0;
+  }
+  if (slot != NULL) {
+    slot->count++;
+    memcpy(slot->last_data, msg->buffer, sizeof(slot->last_data));
+    slot->last_len = msg->len;
+    slot->last_us = esp_timer_get_time();
+  }
+  taskEXIT_CRITICAL(&s_stats_lock);
+}
+
 /* ---------- ISR callbacks (must be in IRAM) ---------- */
 static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
                                       const twai_tx_done_event_data_t *edata,
@@ -56,6 +87,11 @@ static IRAM_ATTR bool can_tx_done_cb(twai_node_handle_t handle,
   (void)user_ctx;
   if (s_free_frame_queue == NULL) {
     return false;
+  }
+  if (edata->is_tx_success) {
+    s_tx_ok_count++;
+  } else {
+    s_tx_fail_count++;
   }
   const twai_frame_t *done_frame = edata->done_tx_frame;
   can_frame_buf_t *fb = (can_frame_buf_t *)done_frame; /* frame is first member */
@@ -82,7 +118,9 @@ static IRAM_ATTR bool can_rx_done_cb(twai_node_handle_t handle,
   }
   msg.id = rx_frame.header.id;
   msg.timestamp = rx_frame.header.timestamp;
-  msg.len = (rx_frame.buffer_len > 8) ? 8 : (uint8_t)rx_frame.buffer_len;
+  /* buffer_len is the provided capacity; the received byte count is the DLC
+   * (equal to the data length for classic CAN frames). */
+  msg.len = (rx_frame.header.dlc > 8) ? 8 : rx_frame.header.dlc;
   BaseType_t yield = pdFALSE;
   xQueueSendFromISR(s_rx_queue, &msg, &yield);
   return yield == pdTRUE;
@@ -96,6 +134,7 @@ static void can_rx_task(void *arg) {
     if (xQueueReceive(s_rx_queue, &msg, portMAX_DELAY) != pdTRUE) {
       continue;
     }
+    rx_stats_record(&msg);
     for (uint8_t i = 0; i < s_rx_cb_count; i++) {
       s_rx_cbs[i](msg.buffer, msg.id, msg.timestamp);
     }
@@ -265,5 +304,25 @@ esp_err_t can_tx(uint32_t id, const uint8_t *data, uint8_t len) {
     }
   }
   return ret;
+}
+
+size_t can_get_rx_stats(can_rx_stat_t *out, size_t max) {
+  if (out == NULL || max == 0) {
+    return 0;
+  }
+  taskENTER_CRITICAL(&s_stats_lock);
+  size_t n = (s_rx_stats_count < max) ? s_rx_stats_count : max;
+  memcpy(out, s_rx_stats, n * sizeof(can_rx_stat_t));
+  taskEXIT_CRITICAL(&s_stats_lock);
+  return n;
+}
+
+void can_get_tx_stats(uint32_t *ok_out, uint32_t *fail_out) {
+  if (ok_out != NULL) {
+    *ok_out = s_tx_ok_count;
+  }
+  if (fail_out != NULL) {
+    *fail_out = s_tx_fail_count;
+  }
 }
 

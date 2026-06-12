@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -43,3 +44,27 @@ esp_err_t can_register_rx_cb(can_rx_cb_t cb);
  *         ESP_ERR_INVALID_SIZE if len > 8, ESP_ERR_TIMEOUT if TX queue full.
  */
 esp_err_t can_tx(uint32_t id, const uint8_t *data, uint8_t len);
+
+/* Per-ID receive statistics, for bus diagnostics. */
+typedef struct {
+    uint32_t id;           /* CAN identifier */
+    uint32_t count;        /* frames received since boot */
+    uint8_t  last_data[8]; /* payload of the most recent frame */
+    uint8_t  last_len;     /* DLC of the most recent frame */
+    int64_t  last_us;      /* esp_timer time of the most recent frame */
+} can_rx_stat_t;
+
+/**
+ * @brief Snapshot per-ID RX statistics (every distinct ID seen since boot).
+ *
+ * @param[out] out Array to fill.
+ * @param[in]  max Capacity of @p out.
+ * @return Number of entries written.
+ */
+size_t can_get_rx_stats(can_rx_stat_t *out, size_t max);
+
+/**
+ * @brief Get TX outcome counters (frames acknowledged on the bus vs. dropped
+ *        after retries, as reported by the driver's tx-done callback).
+ */
+void can_get_tx_stats(uint32_t *ok_out, uint32_t *fail_out);

@@ -1,7 +1,7 @@
 idf_component_register(SRCS "webui.c"
                        INCLUDE_DIRS "include"
                        EMBED_FILES "index.html"
-                       REQUIRES control datalog encoder_can imu servo_drive walltime esp_app_format esp_http_server esp_wifi esp_event esp_timer)
+                       REQUIRES can control datalog encoder_can imu servo_drive walltime esp_app_format esp_http_server esp_wifi esp_event esp_timer)
 
 # Web assets are syntax-checked (JS) and gzipped into the build dir at build
 # time, then embedded. webui.c references the _binary_<name>_gz_* symbols,

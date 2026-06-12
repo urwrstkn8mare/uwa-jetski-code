@@ -1,5 +1,6 @@
 #include "webui.h"
 
+#include "can.h"
 #include "control.h"
 #include "datalog.h"
 #include "encoder_can.h"
@@ -55,8 +56,9 @@ static const int64_t SERVO_THROTTLE_US = 100000LL;
 static const int64_t STATE_THROTTLE_US  = 200000LL;
 
 static esp_err_t json_error_resp(httpd_req_t *req, const char *msg) {
-    char buf[128];
+    char buf[224];
     int n = snprintf(buf, sizeof(buf), "{\"error\":\"%s\"}", msg);
+    httpd_resp_set_status(req, HTTPD_500);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, buf, (size_t)n);
 }
@@ -554,11 +556,90 @@ static esp_err_t api_get_attitude(httpd_req_t *req) {
     return httpd_resp_send(req, buf, (size_t)(n > 0 ? n : 0));
 }
 
+static void zero_step_desc(esp_err_t err, uint8_t status, char *out, size_t n) {
+    if (err == ESP_OK) {
+        snprintf(out, n, "ok");
+    } else if (err == ESP_ERR_NOT_FINISHED) {
+        snprintf(out, n, "skipped");
+    } else if (err == ESP_ERR_TIMEOUT) {
+        snprintf(out, n, "no ack");
+    } else if (err == ESP_FAIL) {
+        snprintf(out, n, "rejected 0x%02x", status);
+    } else {
+        snprintf(out, n, "%s", esp_err_to_name(err));
+    }
+}
+
+static void sdo_step_desc(esp_err_t err, uint32_t abort_code, char *out, size_t n) {
+    if (err == ESP_OK) {
+        snprintf(out, n, "ok");
+    } else if (err == ESP_ERR_NOT_FINISHED) {
+        snprintf(out, n, "skipped");
+    } else if (err == ESP_ERR_TIMEOUT) {
+        snprintf(out, n, "no reply");
+    } else if (err == ESP_FAIL) {
+        snprintf(out, n, "abort 0x%08" PRIx32, abort_code);
+    } else {
+        snprintf(out, n, "%s", esp_err_to_name(err));
+    }
+}
+
 static esp_err_t api_post_rudder_zero(httpd_req_t *req) {
-    if (encoder_can_zero() != ESP_OK) {
-        return json_error_resp(req, "zero command failed");
+    encoder_zero_report_t rep;
+    esp_err_t err = encoder_can_zero(&rep);
+    if (err != ESP_OK) {
+        char msg[192];
+        if (rep.sdo_preset_err == ESP_OK) {
+            char save[32];
+            sdo_step_desc(rep.sdo_save_err, rep.sdo_save_abort, save, sizeof(save));
+            snprintf(msg, sizeof(msg),
+                     "zeroed, but EEPROM save failed (%s) - may not survive a power cycle",
+                     save);
+        } else if (rep.sdo_preset_err != ESP_ERR_TIMEOUT) {
+            char preset[32];
+            sdo_step_desc(rep.sdo_preset_err, rep.sdo_preset_abort, preset, sizeof(preset));
+            snprintf(msg, sizeof(msg), "CANopen preset write: %s", preset);
+        } else {
+            char pause[24], zero[24], restore[24];
+            zero_step_desc(rep.mode_pause_err, rep.mode_pause_status, pause, sizeof(pause));
+            zero_step_desc(rep.zero_err, rep.zero_status, zero, sizeof(zero));
+            zero_step_desc(rep.mode_restore_err, rep.mode_restore_status, restore, sizeof(restore));
+            snprintf(msg, sizeof(msg),
+                     "CANopen: no reply | pause auto: %s | zero: %s | restore auto: %s",
+                     pause, zero, restore);
+        }
+        return json_error_resp(req, msg);
     }
     return json_ok_resp(req);
+}
+
+static esp_err_t api_get_can_stats(httpd_req_t *req) {
+    can_rx_stat_t stats[24];
+    size_t n = can_get_rx_stats(stats, sizeof(stats) / sizeof(stats[0]));
+    uint32_t tx_ok = 0, tx_fail = 0;
+    can_get_tx_stats(&tx_ok, &tx_fail);
+    int64_t now = esp_timer_get_time();
+
+    httpd_resp_set_type(req, "application/json");
+    char buf[160];
+    snprintf(buf, sizeof(buf), "{\"tx_ok\":%" PRIu32 ",\"tx_fail\":%" PRIu32 ",\"rx\":[",
+             tx_ok, tx_fail);
+    httpd_resp_sendstr_chunk(req, buf);
+    for (size_t i = 0; i < n; i++) {
+        char data_hex[3 * 8 + 1] = "";
+        for (uint8_t b = 0; b < stats[i].last_len && b < 8; b++) {
+            snprintf(&data_hex[b * 3], 4, "%02x ", stats[i].last_data[b]);
+        }
+        snprintf(buf, sizeof(buf),
+                 "%s{\"id\":\"0x%03" PRIX32 "\",\"count\":%" PRIu32
+                 ",\"len\":%u,\"data\":\"%s\",\"age_ms\":%lld}",
+                 i ? "," : "", stats[i].id, stats[i].count,
+                 (unsigned)stats[i].last_len, data_hex,
+                 (long long)((now - stats[i].last_us) / 1000));
+        httpd_resp_sendstr_chunk(req, buf);
+    }
+    httpd_resp_sendstr_chunk(req, "]}");
+    return httpd_resp_sendstr_chunk(req, NULL);
 }
 
 static esp_err_t api_post_config_restore(httpd_req_t *req) {
@@ -895,6 +976,7 @@ static const httpd_uri_t s_uris[] = {
     {.uri = "/api/imu/defaults", .method = HTTP_GET, .handler = api_get_imu_defaults},
     {.uri = "/api/attitude", .method = HTTP_GET,  .handler = api_get_attitude},
     {.uri = "/api/rudder/zero", .method = HTTP_POST, .handler = api_post_rudder_zero},
+    {.uri = "/api/can/stats",   .method = HTTP_GET,  .handler = api_get_can_stats},
     {.uri = "/api/time",     .method = HTTP_GET,  .handler = api_get_time},
     {.uri = "/api/time",     .method = HTTP_POST, .handler = api_post_time},
     {.uri = "/api/sessions",        .method = HTTP_GET,  .handler = api_get_sessions},
@@ -910,7 +992,7 @@ static esp_err_t http_server_init(void) {
     /* Default 4 KB overflows: session handlers stack ~2 KB of buffers on top
      * of LittleFS traversal and float printf. */
     cfg.stack_size = 8192;
-    cfg.max_uri_handlers = 30;
+    cfg.max_uri_handlers = 32;
     cfg.lru_purge_enable = true;
     cfg.server_port = CONFIG_WEBUI_HTTP_PORT;
 

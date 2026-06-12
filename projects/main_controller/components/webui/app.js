@@ -193,13 +193,46 @@ $('btnSyncTime').addEventListener('click', () => {
 
 $('btnZeroRudder').addEventListener('click', () => {
     if (!confirm('Zero the rudder encoder at its current position?')) return;
-    fetch(API + '/api/rudder/zero', {method:'POST'}).then(r => {
-        $('rudderZeroMsg').textContent = r.ok ? 'Zeroed!' : 'Error';
-        setTimeout(() => $('rudderZeroMsg').textContent = '', 2000);
+    fetch(API + '/api/rudder/zero', {method:'POST'}).then(async r => {
+        if (r.ok) {
+            $('rudderZeroMsg').textContent = 'Zeroed!';
+        } else {
+            let msg = 'Error';
+            try {
+                const body = await r.json();
+                if (body && body.error) msg = body.error;
+            } catch (_) {}
+            $('rudderZeroMsg').textContent = msg;
+        }
+        setTimeout(() => $('rudderZeroMsg').textContent = '', r.ok ? 2000 : 10000);
     }).catch(() => {
         $('rudderZeroMsg').textContent = 'Error';
         setTimeout(() => $('rudderZeroMsg').textContent = '', 2000);
     });
+});
+
+let canMonTimer = null;
+function refreshCanStats() {
+    fetch(API + '/api/can/stats').then(r => r.json()).then(d => {
+        $('canTxStats').textContent =
+            'TX ok: ' + d.tx_ok + '  TX failed (no ack on bus): ' + d.tx_fail;
+        const rows = (d.rx || []).sort((a, b) => parseInt(a.id, 16) - parseInt(b.id, 16))
+            .map(f => '<tr><td style="padding:2px 10px 2px 0">' + f.id +
+                '</td><td style="text-align:right;padding:2px 10px 2px 0">' + f.count +
+                '</td><td style="text-align:right;padding:2px 10px 2px 0">' + f.len +
+                '</td><td style="padding:2px 10px 2px 0">' + f.data +
+                '</td><td style="text-align:right">' + f.age_ms + '</td></tr>');
+        $('canStatsTable').querySelector('tbody').innerHTML = rows.join('');
+    }).catch(() => {});
+}
+$('canMonitor').addEventListener('toggle', () => {
+    if ($('canMonitor').open) {
+        refreshCanStats();
+        canMonTimer = setInterval(refreshCanStats, 500);
+    } else if (canMonTimer) {
+        clearInterval(canMonTimer);
+        canMonTimer = null;
+    }
 });
 
 $('btnResetConfig').addEventListener('click', () => {
