@@ -1,0 +1,82 @@
+dependencies:
+  espressif/button:
+    component_hash: 95babe831403e301511a22a4dfcd599abcf32cf72c7f8ac5352a61662363c9ea
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 4.1.7
+  espressif/cmake_utilities:
+    component_hash: 05165f30922b422b4b90c08845e6d449329b97370fbd06309803d8cb539d79e3
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.1
+  espressif/esp_lvgl_port:
+    component_hash: fb6c1fdfe70d4ca39a035d63ca394a35f17ec84ce16ff98ecb13a54155d75da4
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.2'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.8.0~1
+  idf:
+    source:
+      type: idf
+    version: 6.0.1
+  lvgl/lvgl:
+    component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.5.0
+  lwgps:
+    component_hash: 8af804a8d32baf96b8292b017429fc46cc98399c0be787e690f0ba84b8e8f851
+    dependencies:
+    - name: idf
+      version: '>=5.0'
+    source:
+      git: https://github.com/urwrstkn8mare/lwgps.git
+      path: .
+      type: git
+    version: 45aa03d27cdbff4aecb67de1a70b5e7f00f2d08e
+  tdisplays3:
+    component_hash: f5f58b741ad49076ff370339b34cfc52c7c799e062c56105f615661523c54453
+    dependencies:
+    - name: espressif/esp_lvgl_port
+      version: ^2.6.2
+    - name: espressif/button
+      version: ^4.1.4
+    - name: lvgl/lvgl
+      public: true
+      version: ^9
+    source:
+      git: https://github.com/urwrstkn8mare/esp-idf-t-display-s3.git
+      path: components/tdisplays3
+      type: git
+    version: d9e47f1c6ed1733b342cad5150cb59f47861011f
+direct_dependencies:
+- idf
+- lwgps
+- tdisplays3
+manifest_hash: a76e6a43718bfc4e5d457a046b64582070e657c3c89f96443a6e13ba3dc1e8ef
+target: esp32s3
+version: 3.0.0
