@@ -414,6 +414,7 @@ let dataSession = null;          // {id, n, t, cols{}, lat, lon, gps}
 let visible = new Set(DEFAULT_ON);
 let graphMode = 'all';
 let selIndex = -1;
+let viewT0 = 0, viewT1 = 0;      // zoomed x-range in seconds; T1<=T0 = full session
 let sessionsMeta = [], currentSessionId = 0, localFile = null;
 let map = null, trackLine = null, selMarker = null;
 let selectedConfigEvent = null;
@@ -580,6 +581,7 @@ function loadSessionData(id){
 function selectSession(s){
   dataSession = s;
   selIndex = -1;
+  viewT0 = viewT1 = 0;
   const start=fmtStart(s.startEpoch);
   $('chartTitle').textContent = 'Graphs — Session '+s.id+' ('+s.n+' pts · '+s.hz+' Hz'+(start?' · started '+start:'')+')';
   renderSessionList();
@@ -698,15 +700,24 @@ function drawChart(){
   drawChartPanel(ctx, w, 0, h, mode.keys, null);
 }
 
-function drawConfigLines(ctx, padL, padT, plotW, plotH, tmax){
+function viewRange(){
+  const full=dataSession.t[dataSession.n-1]||1;
+  return viewT1>viewT0 ? [viewT0,viewT1] : [0,full];
+}
+
+function fmtT(ts){
+  return 'T+'+(ts>=60 ? Math.floor(ts/60)+':'+(ts%60).toFixed(2).padStart(5,'0') : ts.toFixed(2)+'s');
+}
+
+function drawConfigLines(ctx, padL, padT, plotW, plotH, tA, tB){
   if(dataSession.cfgEvents && dataSession.cfgEvents.length > 1){
     ctx.save();
     ctx.strokeStyle='#ffd93d';
     ctx.globalAlpha=.7;
     ctx.setLineDash([3,5]);
     dataSession.cfgEvents.slice(1).forEach(ev=>{
-      if(ev.t < 0 || ev.t > tmax) return;
-      const x=padL+(ev.t/tmax)*plotW;
+      if(ev.t < tA || ev.t > tB) return;
+      const x=padL+((ev.t-tA)/(tB-tA))*plotW;
       ctx.beginPath();
       ctx.moveTo(x,padT);
       ctx.lineTo(x,padT+plotH);
@@ -718,14 +729,20 @@ function drawConfigLines(ctx, padL, padT, plotW, plotH, tmax){
 
 function drawChartPanel(ctx, w, y0, h, keys, title){
   const padL=46,padR=8,padT=y0+18,padB=18, plotW=w-padL-padR, plotH=h-28-padB;
-  const t=dataSession.t, n=dataSession.n, tmax=t[n-1]||1;
+  const t=dataSession.t, n=dataSession.n;
+  const [tA,tB]=viewRange(), tSpan=(tB-tA)||1;
+  /* sample range covering the view, extended one sample past each edge so
+   * lines run to the plot border when zoomed */
+  let i0=nearestByTime(tA), i1=nearestByTime(tB);
+  if(i0>0) i0--;
+  if(i1<n-1) i1++;
   const vis=keys.map(k => CH_BY_KEY[k]).filter(ch=>ch && visible.has(ch.k));
   let mn=Infinity,mx=-Infinity;
-  vis.forEach(ch=>{ const a=dataSession.cols[ch.k]; for(let i=0;i<n;i++){ const v=a[i]; if(v<mn)mn=v; if(v>mx)mx=v; } });
+  vis.forEach(ch=>{ const a=dataSession.cols[ch.k]; for(let i=i0;i<=i1;i++){ const v=a[i]; if(v<mn)mn=v; if(v>mx)mx=v; } });
   if(mn===Infinity){ mn=-1; mx=1; }
   if(mn===mx){ mn-=1; mx+=1; }
   const p=(mx-mn)*0.08; mn-=p; mx+=p;
-  const X=i=>padL+(t[i]/tmax)*plotW, Y=v=>padT+(1-(v-mn)/(mx-mn))*plotH;
+  const X=i=>padL+((t[i]-tA)/tSpan)*plotW, Y=v=>padT+(1-(v-mn)/(mx-mn))*plotH;
   ctx.font='10px monospace'; ctx.lineWidth=1;
   if (title) {
     ctx.fillStyle='#9aa6c2';
@@ -739,26 +756,28 @@ function drawChartPanel(ctx, w, y0, h, keys, title){
   if(mn<0&&mx>0){ ctx.strokeStyle='#44557a'; ctx.beginPath(); ctx.moveTo(padL,Y(0)); ctx.lineTo(w-padR,Y(0)); ctx.stroke(); }
   ctx.fillStyle='#7a89a8';
   for(let g=0;g<=4;g++){
-    const ts=tmax*g/4;
-    const lbl='T+'+(ts>=60 ? Math.floor(ts/60)+':'+String(Math.round(ts%60)).padStart(2,'0') : Math.round(ts)+'s');
+    const lbl=fmtT(tA+tSpan*g/4);
     ctx.textAlign = g===0 ? 'left' : (g===4 ? 'right' : 'center');
     ctx.fillText(lbl, padL+plotW*g/4, padT+plotH+12);
   }
   ctx.textAlign='left';
-  drawConfigLines(ctx, padL, padT, plotW, plotH, tmax);
+  drawConfigLines(ctx, padL, padT, plotW, plotH, tA, tB);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(padL,padT,plotW,plotH); ctx.clip();
   ctx.lineWidth=1.5;
   vis.forEach(ch=>{
     const a=dataSession.cols[ch.k];
     ctx.strokeStyle=ch.c; ctx.setLineDash(ch.dash?[4,3]:[]); ctx.beginPath();
-    for(let i=0;i<n;i++){ const x=X(i),y=Y(a[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    for(let i=i0;i<=i1;i++){ const x=X(i),y=Y(a[i]); i>i0?ctx.lineTo(x,y):ctx.moveTo(x,y); }
     ctx.stroke();
   });
   ctx.setLineDash([]);
-  if(selIndex>=0&&selIndex<n){
+  if(selIndex>=0&&selIndex<n&&t[selIndex]>=tA&&t[selIndex]<=tB){
     const x=X(selIndex);
     ctx.strokeStyle='#fff'; ctx.globalAlpha=.5; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+plotH); ctx.stroke(); ctx.globalAlpha=1;
     vis.forEach(ch=>{ ctx.fillStyle=ch.c; ctx.beginPath(); ctx.arc(x,Y(dataSession.cols[ch.k][selIndex]),2.5,0,7); ctx.fill(); });
   }
+  ctx.restore();
 }
 
 function findConfigEvent(t){
@@ -773,7 +792,7 @@ function findConfigEvent(t){
 
 function updateReadout(){
   if(selIndex<0||!dataSession){ $('readout').textContent=''; return; }
-  const parts=['t='+dataSession.t[selIndex].toFixed(1)+'s'];
+  const parts=['t='+dataSession.t[selIndex].toFixed(2)+'s'];
   CH.filter(ch=>visible.has(ch.k)).forEach(ch=>parts.push(ch.l+'='+dataSession.cols[ch.k][selIndex].toFixed(1)));
   $('readout').textContent=parts.join('   ');
 }
@@ -795,7 +814,7 @@ function updateConfigPanel(){
     return;
   }
   const c = selectedConfigEvent.cfg;
-  $('configAtTitle').textContent = 'Config at T+' + dataSession.t[selIndex].toFixed(1) + 's';
+  $('configAtTitle').textContent = 'Config at T+' + dataSession.t[selIndex].toFixed(2) + 's';
   el.innerHTML = [
     ['Height', c.height_enabled ? 'on' : 'off', 'Target ' + c.height_target_cm + ' cm', 'PID ' + c.height_kp + '/' + c.height_ki + '/' + c.height_kd],
     ['Pitch', 'Max target ' + c.pitch_target_max_deg + '°', 'PID ' + c.pitch_kp + '/' + c.pitch_ki + '/' + c.pitch_kd],
@@ -810,15 +829,59 @@ function updateConfigPanel(){
 
 function pickIndex(i){ selIndex=i; drawChart(); updateReadout(); updateSelMarker(); updateConfigPanel(); }
 
-function chartPick(e){
-  if(!dataSession||!dataSession.n) return;
-  const r=e.currentTarget.getBoundingClientRect(), padL=46,padR=8, plotW=r.width-padL-padR;
-  let frac=(e.clientX-r.left-padL)/plotW; frac=Math.max(0,Math.min(1,frac));
-  pickIndex(nearestByTime(frac*(dataSession.t[dataSession.n-1]||0)));
+function chartFrac(x){
+  const r=$('chart').getBoundingClientRect(), padL=46,padR=8, plotW=r.width-padL-padR;
+  return Math.max(0,Math.min(1,(x-r.left-padL)/plotW));
 }
 
-$('chart').addEventListener('mousemove', chartPick);
-$('chart').addEventListener('pointerdown', chartPick);
+function chartPick(e){
+  if(!dataSession||!dataSession.n) return;
+  const [tA,tB]=viewRange();
+  pickIndex(nearestByTime(tA+chartFrac(e.clientX)*(tB-tA)));
+}
+
+/* Horizontal drag selects a time range to zoom into; a plain click/tap picks a
+ * point; double-click resets to the full session. */
+let dragX0=-1, dragX1=-1, dragging=false;
+
+function drawDragOverlay(){
+  const cv=$('chart'), r=cv.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+  const x0=Math.min(dragX0,dragX1)-r.left, x1=Math.max(dragX0,dragX1)-r.left;
+  ctx.fillStyle='rgba(83,144,217,0.22)';
+  ctx.fillRect(x0,0,x1-x0,cv.clientHeight);
+}
+
+$('chart').addEventListener('pointerdown',e=>{
+  if(!dataSession||!dataSession.n) return;
+  dragX0=dragX1=e.clientX; dragging=false;
+  e.currentTarget.setPointerCapture(e.pointerId);
+});
+$('chart').addEventListener('pointermove',e=>{
+  if(!dataSession||!dataSession.n) return;
+  if(dragX0>=0){
+    dragX1=e.clientX;
+    if(Math.abs(dragX1-dragX0)>6) dragging=true;
+    if(dragging){ drawChart(); drawDragOverlay(); }
+    return;
+  }
+  if(e.pointerType==='mouse' && e.buttons===0) chartPick(e);  /* hover scrub */
+});
+$('chart').addEventListener('pointerup',e=>{
+  if(dragX0<0) return;
+  if(dragging){
+    const [tA,tB]=viewRange();
+    const ta=tA+chartFrac(Math.min(dragX0,dragX1))*(tB-tA);
+    const tb=tA+chartFrac(Math.max(dragX0,dragX1))*(tB-tA);
+    if(tb-ta>0.01){ viewT0=ta; viewT1=tb; }
+    drawChart();
+  } else {
+    chartPick(e);
+  }
+  dragX0=dragX1=-1; dragging=false;
+});
+$('chart').addEventListener('pointercancel',()=>{ dragX0=dragX1=-1; dragging=false; drawChart(); });
+$('chart').addEventListener('dblclick',()=>{ viewT0=viewT1=0; drawChart(); });
 
 function ensureMap(){
   if(map || typeof L==='undefined') return;
