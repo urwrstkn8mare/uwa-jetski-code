@@ -48,7 +48,9 @@ esp_err_t status_ui_start(const status_ui_cfg_t *cfg) {
     s_status_ui.lock_timeout_ms = cfg->lock_timeout_ms;
     s_status_ui.min_interval_ms = cfg->min_interval_ms;
 
-    if (s_status_ui.lock_cb) s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
+    if (s_status_ui.lock_cb && !s_status_ui.lock_cb(s_status_ui.lock_timeout_ms)) {
+        return ESP_ERR_TIMEOUT;
+    }
 
     s_status_ui.container = lv_obj_create(cfg->parent);
     lv_obj_remove_style_all(s_status_ui.container);
@@ -77,7 +79,7 @@ esp_err_t status_ui_start(const status_ui_cfg_t *cfg) {
 void status_ui_stop(void) {
     if (!s_status_ui.initialized) return;
 
-    if (s_status_ui.lock_cb) s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
+    if (s_status_ui.lock_cb && !s_status_ui.lock_cb(s_status_ui.lock_timeout_ms)) return;
 
     for (size_t i = 0; i < s_status_ui.entry_count; i++) {
         if (s_status_ui.entries[i].row) {
@@ -119,8 +121,11 @@ void status_ui_update(const char *tag, const char *fmt, ...) {
     /* Acquire the lock BEFORE touching the entries array — otherwise two tasks
      * can both read the same stale entry_count, both compute idx for the same
      * slot, and the second one ends up writing into the first's row instead of
-     * creating a new entry. */
-    if (s_status_ui.lock_cb) s_status_ui.lock_cb(s_status_ui.lock_timeout_ms);
+     * creating a new entry. On timeout, drop the update: touching LVGL while
+     * the render task owns it corrupts the object tree. */
+    if (s_status_ui.lock_cb && !s_status_ui.lock_cb(s_status_ui.lock_timeout_ms)) {
+        return;
+    }
 
     size_t idx = s_status_ui.entry_count;
     for (size_t i = 0; i < s_status_ui.entry_count; i++) {
